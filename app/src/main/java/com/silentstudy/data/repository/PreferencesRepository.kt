@@ -15,8 +15,8 @@ import kotlinx.coroutines.flow.map
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "silentstudy_preferences")
 
 data class AppThemeSettings(
-    val isDarkMode: Boolean = true,       // DARK NEUMORPHIC THEME DEFAULT (FIX 2)
-    val isUltraDimMode: Boolean = false   // ULTRA DIM WARM NIGHT MODE (FIX 2)
+    val isDarkMode: Boolean = true,
+    val isUltraDimMode: Boolean = false   // App is dark by default; Ultra Dim mode for night use
 )
 
 data class AiSettings(
@@ -45,7 +45,6 @@ data class GestureSettings(
 class PreferencesRepository(private val context: Context) {
 
     private object Keys {
-        val IS_DARK_MODE = booleanPreferencesKey("is_dark_mode")
         val IS_ULTRA_DIM_MODE = booleanPreferencesKey("is_ultra_dim_mode")
 
         val AI_PROVIDER = stringPreferencesKey("ai_provider")
@@ -63,10 +62,8 @@ class PreferencesRepository(private val context: Context) {
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
     }
 
-    // Default to DARK = true, ULTRA_DIM = false
     val themeSettings: Flow<AppThemeSettings> = context.dataStore.data.map { prefs ->
         AppThemeSettings(
-            isDarkMode = prefs[Keys.IS_DARK_MODE] ?: true,
             isUltraDimMode = prefs[Keys.IS_ULTRA_DIM_MODE] ?: false
         )
     }
@@ -98,7 +95,7 @@ class PreferencesRepository(private val context: Context) {
     }
 
     suspend fun setDarkMode(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.IS_DARK_MODE] = enabled }
+        // App is permanently dark by design
     }
 
     suspend fun setUltraDimMode(enabled: Boolean) {

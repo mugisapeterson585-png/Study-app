@@ -1,29 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Default Dark Neumorphic Palette (Glare-free, NO pure #FFFFFF) -->
-    <color name="neu_dark_bg">#1E2127</color>
-    <color name="neu_dark_surface">#1E2127</color>
-    <color name="neu_dark_light_shadow">#2A2E36</color>
-    <color name="neu_dark_dark_shadow">#14161A</color>
-    <color name="neu_dark_accent">#6EA8FE</color>
-    <color name="neu_dark_text_primary">#C9CED6</color>
-    <color name="neu_dark_text_secondary">#8E95A2</color>
+    <!-- Flat Dark Low-Glare Palette (Zero White) -->
+    <color name="app_dark_bg">#121418</color>
+    <color name="app_dark_surface">#1B1E24</color>
+    <color name="app_dark_control">#242831</color>
+    <color name="app_dark_border">#2E333D</color>
+    <color name="app_dark_accent">#5B8DEF</color>
+    <color name="app_dark_error">#D06A6A</color>
+    <color name="app_dark_text_primary">#C4C9D1</color>
+    <color name="app_dark_text_secondary">#8A919E</color>
 
-    <!-- Ultra Dim Warm Night Palette -->
-    <color name="neu_ultradim_bg">#141619</color>
-    <color name="neu_ultradim_surface">#141619</color>
-    <color name="neu_ultradim_light_shadow">#1D2026</color>
-    <color name="neu_ultradim_dark_shadow">#0D0E10</color>
-    <color name="neu_ultradim_accent">#5C93E6</color>
-    <color name="neu_ultradim_text_primary">#B0B6BF</color>
-    <color name="neu_ultradim_text_secondary">#7A818E</color>
-
-    <!-- Optional Light Palette (Subdued, off-white #E2E6ED) -->
-    <color name="neu_light_bg">#DDE2EA</color>
-    <color name="neu_light_surface">#DDE2EA</color>
-    <color name="neu_light_light_shadow">#F4F7FC</color>
-    <color name="neu_light_dark_shadow">#B8C0CC</color>
-    <color name="neu_light_accent">#3B82F6</color>
-    <color name="neu_light_text_primary">#2D323B</color>
-    <color name="neu_light_text_secondary">#666F7E</color>
+    <!-- Ultra Dim Low-Glare Palette -->
+    <color name="app_ultradim_bg">#0C0E11</color>
+    <color name="app_ultradim_surface">#14171C</color>
+    <color name="app_ultradim_control">#1C2027</color>
+    <color name="app_ultradim_border">#242832</color>
+    <color name="app_ultradim_accent">#4D7ACF</color>
+    <color name="app_ultradim_error">#B85C5C</color>
+    <color name="app_ultradim_text_primary">#9AA0AA</color>
+    <color name="app_ultradim_text_secondary">#6B7280</color>
 </resources>

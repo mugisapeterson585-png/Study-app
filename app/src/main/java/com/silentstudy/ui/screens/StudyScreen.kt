@@ -14,9 +14,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silentstudy.data.model.Answer
-import com.silentstudy.ui.components.NeuButton
-import com.silentstudy.ui.components.NeuCard
-import com.silentstudy.ui.theme.LocalNeuColors
+import com.silentstudy.ui.components.AppButton
+import com.silentstudy.ui.components.AppCard
+import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 
 @Composable
@@ -27,7 +27,7 @@ fun StudyScreen(
     answersHeardCount: Int,
     onToggleSession: () -> Unit
 ) {
-    val colors = LocalNeuColors.current
+    val colors = LocalAppColors.current
     var studyTab by remember { mutableStateOf("session") } // session, quiz, pomodoro
 
     // Pomodoro timer state
@@ -69,21 +69,21 @@ fun StudyScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            NeuButton(
+            AppButton(
                 onClick = { studyTab = "session" },
                 isAccent = studyTab == "session",
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Session", fontSize = 12.sp, color = colors.textPrimary)
             }
-            NeuButton(
+            AppButton(
                 onClick = { studyTab = "quiz" },
                 isAccent = studyTab == "quiz",
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Quiz Mode", fontSize = 12.sp, color = colors.textPrimary)
             }
-            NeuButton(
+            AppButton(
                 onClick = { studyTab = "pomodoro" },
                 isAccent = studyTab == "pomodoro",
                 modifier = Modifier.weight(1f)
@@ -94,7 +94,7 @@ fun StudyScreen(
 
         when (studyTab) {
             "session" -> {
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Library Study Session",
                         fontSize = 13.sp,
@@ -135,7 +135,7 @@ fun StudyScreen(
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
-                    NeuButton(
+                    AppButton(
                         onClick = onToggleSession,
                         modifier = Modifier.fillMaxWidth(),
                         isAccent = !isSessionActive
@@ -157,7 +157,7 @@ fun StudyScreen(
             }
 
             "quiz" -> {
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -200,7 +200,7 @@ fun StudyScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            NeuButton(
+                            AppButton(
                                 onClick = {
                                     knewCount += 1
                                     isFlipped = false
@@ -210,13 +210,13 @@ fun StudyScreen(
                             ) {
                                 Text("1 Tap: Knew It", fontSize = 11.sp, color = colors.accent)
                             }
-                            NeuButton(
+                            AppButton(
                                 onClick = { isFlipped = !isFlipped },
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text(if (isFlipped) "Hide" else "Reveal", fontSize = 11.sp, color = colors.textPrimary)
                             }
-                            NeuButton(
+                            AppButton(
                                 onClick = {
                                     missedCount += 1
                                     isFlipped = false
@@ -235,7 +235,7 @@ fun StudyScreen(
             }
 
             "pomodoro" -> {
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text("Library Pomodoro (25/5 Cycle)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.accent)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
@@ -254,14 +254,14 @@ fun StudyScreen(
 
                     Spacer(modifier = Modifier.height(20.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NeuButton(
+                        AppButton(
                             onClick = { pomoRunning = !pomoRunning },
                             modifier = Modifier.weight(1f),
                             isAccent = !pomoRunning
                         ) {
                             Text(if (pomoRunning) "Pause" else "Start Focus", fontSize = 12.sp, color = colors.textPrimary)
                         }
-                        NeuButton(
+                        AppButton(
                             onClick = {
                                 pomoRunning = false
                                 pomoMinutes = 25

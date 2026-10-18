@@ -40,7 +40,7 @@ fun DeskScreenOffScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0C0E))
+            .background(Color(0xFF0C0E11))
             .clickable(onClick = onWake)
             .padding(24.dp)
     ) {
@@ -54,13 +54,13 @@ fun DeskScreenOffScreen(
                 Icon(
                     imageVector = Icons.Default.Headphones,
                     contentDescription = null,
-                    tint = Color(0xFF6EA8FE).copy(alpha = 0.5f),
+                    tint = Color(0xFF5B8DEF).copy(alpha = 0.5f),
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = "DESK SCREEN-OFF MODE",
-                    color = Color(0xFF6A7280),
+                    color = Color(0xFF8A919E),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace
                 )
@@ -70,7 +70,7 @@ fun DeskScreenOffScreen(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Wake Screen",
-                    tint = Color(0xFF6A7280)
+                    tint = Color(0xFF8A919E)
                 )
             }
         }
@@ -82,7 +82,7 @@ fun DeskScreenOffScreen(
         ) {
             Text(
                 text = currentTime,
-                color = Color(0xFF4A5260),
+                color = Color(0xFF9AA0AA),
                 fontSize = 72.sp,
                 fontWeight = FontWeight.ExtraLight,
                 fontFamily = FontFamily.Monospace
@@ -92,7 +92,7 @@ fun DeskScreenOffScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = currentAnswerSummary,
-                    color = Color(0xFF5A6270),
+                    color = Color(0xFF8A919E),
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace
                 )
@@ -101,7 +101,7 @@ fun DeskScreenOffScreen(
             Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "Knock on desk: 1 = Play · 2 = Next · 3 = Prev · 4 = Wake",
-                color = Color(0xFF3A4250),
+                color = Color(0xFF6B7280),
                 fontSize = 10.sp
             )
         }

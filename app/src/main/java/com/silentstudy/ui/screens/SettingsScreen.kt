@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -23,7 +24,7 @@ import com.silentstudy.data.repository.AppThemeSettings
 import com.silentstudy.data.repository.AudioSettings
 import com.silentstudy.data.repository.GestureSettings
 import com.silentstudy.ui.components.*
-import com.silentstudy.ui.theme.LocalNeuColors
+import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -34,13 +35,13 @@ fun SettingsScreen(
     gestureSettings: GestureSettings,
     ttsManager: SilentStudyTtsManager,
     aiManager: AiProviderManager,
-    onSaveTheme: (isDark: Boolean, isUltraDim: Boolean) -> Unit,
+    onSaveUltraDim: (isUltraDim: Boolean) -> Unit,
     onSaveAi: (provider: String, key: String, model: String, baseUrl: String) -> Unit,
     onSaveAudio: (rate: Float, slowdown: Boolean, spokenMenu: Boolean, silentMode: Boolean) -> Unit,
     onSaveGesture: (sensitivity: Int) -> Unit
 ) {
     val context = LocalContext.current
-    val colors = LocalNeuColors.current
+    val colors = LocalAppColors.current
     val scope = rememberCoroutineScope()
 
     var activeTab by remember { mutableStateOf("ai") } // ai, audio, appearance, gestures
@@ -62,10 +63,10 @@ fun SettingsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Settings Header with Savage Tech Credits (FIX 2)
-        NeuCard(modifier = Modifier.fillMaxWidth()) {
+        // Settings Header with Savage Tech Credits
+        AppCard(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -101,7 +102,7 @@ fun SettingsScreen(
         ) {
             listOf("ai" to "AI Providers", "audio" to "Audio", "appearance" to "Theme", "gestures" to "Gestures").forEach { (tab, label) ->
                 val isSelected = activeTab == tab
-                NeuButton(
+                AppButton(
                     onClick = { activeTab = tab },
                     isAccent = isSelected,
                     modifier = Modifier.weight(1f)
@@ -114,7 +115,7 @@ fun SettingsScreen(
         when (activeTab) {
             "ai" -> {
                 // Section 4A: Provider Agnostic AI Layer
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "AI Provider Layer (No Vendor Lock-in)",
                         fontSize = 13.sp,
@@ -163,7 +164,7 @@ fun SettingsScreen(
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
-                    NeuTextField(
+                    AppTextField(
                         value = apiKeyInput,
                         onValueChange = { apiKeyInput = it },
                         label = "API Key (Stored locally)",
@@ -171,7 +172,7 @@ fun SettingsScreen(
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
-                    NeuTextField(
+                    AppTextField(
                         value = modelInput,
                         onValueChange = { modelInput = it },
                         label = "Model Identifier",
@@ -180,7 +181,7 @@ fun SettingsScreen(
 
                     if (selectedProvider.equals("custom", ignoreCase = true)) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        NeuTextField(
+                        AppTextField(
                             value = baseUrlInput,
                             onValueChange = { baseUrlInput = it },
                             label = "Custom Base URL",
@@ -190,7 +191,7 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NeuButton(
+                        AppButton(
                             onClick = {
                                 isTestingConnection = true
                                 testResult = null
@@ -211,7 +212,7 @@ fun SettingsScreen(
                             }
                         }
 
-                        NeuButton(
+                        AppButton(
                             onClick = {
                                 onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput)
                             },
@@ -228,7 +229,7 @@ fun SettingsScreen(
                             text = res.message,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (res.success) colors.accent else Color(0xFFEF4444)
+                            color = if (res.success) colors.accent else colors.error
                         )
                     }
                 }
@@ -236,9 +237,9 @@ fun SettingsScreen(
 
             "audio" -> {
                 // FIX 1: Native TextToSpeech Engine Controls & Earbuds Guard
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Earbuds Audio & Android TTS (FIX 1)",
+                        text = "Earbuds Audio & Android TTS",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.accent
@@ -249,11 +250,11 @@ fun SettingsScreen(
                         Text(
                             text = ttsError ?: "",
                             fontSize = 11.sp,
-                            color = Color(0xFFEF4444),
+                            color = colors.error,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        NeuButton(
+                        AppButton(
                             onClick = {
                                 try {
                                     context.startActivity(ttsManager.getOpenTtsSettingsIntent())
@@ -267,7 +268,7 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(10.dp))
                     // Test Voice Button (FIX 1 requirement)
-                    NeuButton(
+                    AppButton(
                         onClick = { ttsManager.testVoice(audioSettings.speechRate) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -277,7 +278,7 @@ fun SettingsScreen(
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
-                    NeuToggle(
+                    AppToggle(
                         checked = audioSettings.mathSlowdown,
                         onCheckedChange = {
                             onSaveAudio(audioSettings.speechRate, it, audioSettings.spokenMenuEnabled, audioSettings.silentTextMode)
@@ -286,7 +287,7 @@ fun SettingsScreen(
                         sublabel = "Slows down to 0.75x with pauses on formulas and calculation steps"
                     )
 
-                    NeuToggle(
+                    AppToggle(
                         checked = audioSettings.spokenMenuEnabled,
                         onCheckedChange = {
                             onSaveAudio(audioSettings.speechRate, audioSettings.mathSlowdown, it, audioSettings.silentTextMode)
@@ -295,7 +296,7 @@ fun SettingsScreen(
                         sublabel = "Speaks 'Tap once to repeat...' after each answer completes"
                     )
 
-                    NeuToggle(
+                    AppToggle(
                         checked = audioSettings.silentTextMode,
                         onCheckedChange = {
                             onSaveAudio(audioSettings.speechRate, audioSettings.mathSlowdown, audioSettings.spokenMenuEnabled, it)
@@ -305,7 +306,7 @@ fun SettingsScreen(
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
-                    NeuSlider(
+                    AppSlider(
                         value = audioSettings.speechRate,
                         onValueChange = {
                             onSaveAudio(it, audioSettings.mathSlowdown, audioSettings.spokenMenuEnabled, audioSettings.silentTextMode)
@@ -318,40 +319,52 @@ fun SettingsScreen(
             }
 
             "appearance" -> {
-                // FIX 2: Dark Neumorphic Theme as Default & Ultra Dim Option
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                // Flat Dark Low-Glare Theme (Zero Neumorphism, Zero White)
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Appearance & Theme (FIX 2)",
+                        text = "Appearance & Low-Glare Design",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.accent
                     )
                     Text(
-                        text = "Dark theme is default. Pure white is eliminated to prevent eye glare in dim libraries.",
+                        text = "Flat dark surfaces (#121418 / #1B1E24) with soft grey text (#C4C9D1). Absolutely zero pure white.",
                         fontSize = 11.sp,
                         color = colors.textSecondary,
                         modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
                     )
 
-                    NeuToggle(
-                        checked = themeSettings.isDarkMode,
-                        onCheckedChange = { onSaveTheme(it, themeSettings.isUltraDimMode) },
-                        label = "Dark Neumorphism (Default)",
-                        sublabel = "Surface #1E2127 with glare-free off-white text #C9CED6"
+                    AppToggle(
+                        checked = themeSettings.isUltraDimMode,
+                        onCheckedChange = { onSaveUltraDim(it) },
+                        label = "Ultra Dim Mode (Night Library)",
+                        sublabel = "Uses even darker tones (#0C0E11 background, #14171C cards, text #9AA0AA) for minimal ocular strain"
                     )
 
-                    NeuToggle(
-                        checked = themeSettings.isUltraDimMode,
-                        onCheckedChange = { onSaveTheme(themeSettings.isDarkMode, it) },
-                        label = "Ultra Dim Mode (Night Library)",
-                        sublabel = "Deep warm dark tones (#141619) for zero-glare study at night"
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "The app is permanently dark by default with subtle 1dp borders and zero glare.",
+                        fontSize = 11.sp,
+                        color = colors.textSecondary
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Architecture & Design", fontSize = 12.sp, color = colors.textSecondary)
+                        Text("Savage Tech", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.accent)
+                    }
                 }
             }
 
             "gestures" -> {
                 // Section 8: Native Sensor Settings
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Desk-Tap Accelerometer Sensor",
                         fontSize = 13.sp,
@@ -365,7 +378,7 @@ fun SettingsScreen(
                         modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
                     )
 
-                    NeuSlider(
+                    AppSlider(
                         value = gestureSettings.sensitivity.toFloat(),
                         onValueChange = { onSaveGesture(it.toInt()) },
                         valueRange = 1f..10f,

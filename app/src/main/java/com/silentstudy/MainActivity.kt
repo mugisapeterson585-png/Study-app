@@ -26,7 +26,7 @@ import com.silentstudy.service.SilentStudyService
 import com.silentstudy.ui.components.AfterAnswerMenu
 import com.silentstudy.ui.components.StatusPill
 import com.silentstudy.ui.screens.*
-import com.silentstudy.ui.theme.LocalNeuColors
+import com.silentstudy.ui.theme.LocalAppColors
 import com.silentstudy.ui.theme.SilentStudyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -235,11 +235,11 @@ class MainActivity : ComponentActivity() {
                 isDarkMode = themeSettings.isDarkMode,
                 isUltraDimMode = themeSettings.isUltraDimMode
             ) {
-                val neuColors = LocalNeuColors.current
+                val appColors = LocalAppColors.current
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = neuColors.background
+                    color = appColors.background
                 ) {
                     if (isDeskScreenOffOpen) {
                         DeskScreenOffScreen(
@@ -248,7 +248,7 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         Scaffold(
-                            containerColor = neuColors.background,
+                            containerColor = appColors.background,
                             topBar = {
                                 StatusPill(
                                     isEarbudsConnected = isEarbudsConnected,
@@ -260,7 +260,7 @@ class MainActivity : ComponentActivity() {
                             },
                             bottomBar = {
                                 NavigationBar(
-                                    containerColor = neuColors.surface,
+                                    containerColor = appColors.surface,
                                     tonalElevation = 0.dp
                                 ) {
                                     val navItems = listOf(
@@ -278,18 +278,22 @@ class MainActivity : ComponentActivity() {
                                                 Icon(
                                                     imageVector = icon,
                                                     contentDescription = label,
-                                                    tint = if (isSel) neuColors.accent else neuColors.textSecondary
+                                                    tint = if (isSel) appColors.accent else appColors.textSecondary
                                                 )
                                             },
                                             label = {
                                                 Text(
                                                     text = label,
                                                     fontSize = 10.sp,
-                                                    color = if (isSel) neuColors.accent else neuColors.textSecondary
+                                                    color = if (isSel) appColors.accent else appColors.textSecondary
                                                 )
                                             },
                                             colors = NavigationBarItemDefaults.colors(
-                                                indicatorColor = neuColors.darkShadow.copy(alpha = 0.5f)
+                                                indicatorColor = appColors.control,
+                                                selectedIconColor = appColors.accent,
+                                                unselectedIconColor = appColors.textSecondary,
+                                                selectedTextColor = appColors.accent,
+                                                unselectedTextColor = appColors.textSecondary
                                             )
                                         )
                                     }
@@ -391,9 +395,8 @@ class MainActivity : ComponentActivity() {
                                             gestureSettings = gestureSettings,
                                             ttsManager = app.ttsManager,
                                             aiManager = app.aiProviderManager,
-                                            onSaveTheme = { isDark, isUltraDim ->
+                                            onSaveUltraDim = { isUltraDim ->
                                                 scope.launch {
-                                                    app.preferencesRepository.setDarkMode(isDark)
                                                     app.preferencesRepository.setUltraDimMode(isUltraDim)
                                                 }
                                             },

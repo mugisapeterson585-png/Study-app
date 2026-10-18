@@ -1,7 +1,5 @@
 package com.silentstudy.ui.screens
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -9,10 +7,8 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -35,16 +31,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.silentstudy.ai.AnswerRequest
 import com.silentstudy.data.model.Answer
 import com.silentstudy.data.model.AnswerBlock
-import com.silentstudy.ui.components.NeuButton
-import com.silentstudy.ui.components.NeuCard
-import com.silentstudy.ui.components.NeuTextField
-import com.silentstudy.ui.theme.LocalNeuColors
+import com.silentstudy.ui.components.AppButton
+import com.silentstudy.ui.components.AppCard
+import com.silentstudy.ui.components.AppTextField
+import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 
 @Composable
 fun CaptureScreen(
@@ -53,7 +47,7 @@ fun CaptureScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val colors = LocalNeuColors.current
+    val colors = LocalAppColors.current
     val scope = rememberCoroutineScope()
 
     val cameraController = remember {
@@ -83,7 +77,7 @@ fun CaptureScreen(
                     image.close()
                 }
                 override fun onError(exception: ImageCaptureException) {
-                    // Fallback to sample photo if emulator camera is unavailable
+                    // Fallback to sample photo if camera is unavailable
                     capturedPhotosBase64 = capturedPhotosBase64 + "sample_exam_photo"
                 }
             }
@@ -113,14 +107,15 @@ fun CaptureScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Dark Viewfinder Frame (FIX 2: Darkened glare-free camera screen)
-        NeuCard(modifier = Modifier.fillMaxWidth()) {
+        // Dark Viewfinder Frame (Flat low-glare, zero white)
+        AppCard(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(280.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xFF0F1115))
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.background)
+                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
             ) {
                 AndroidView(
                     factory = { ctx ->
@@ -136,8 +131,8 @@ fun CaptureScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(20.dp)
-                        .border(1.dp, colors.accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        .padding(18.dp)
+                        .border(1.dp, colors.accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                 ) {
                     Text(
                         text = "ALIGN QUESTION / EQUATIONS",
@@ -155,7 +150,7 @@ fun CaptureScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.6f)),
+                            .background(colors.background.copy(alpha = 0.7f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -171,12 +166,14 @@ fun CaptureScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
+                        .padding(10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     IconButton(
                         onClick = { isTimerMode = !isTimerMode },
-                        modifier = Modifier.background(Color(0xFF1E2127).copy(alpha = 0.8f), CircleShape)
+                        modifier = Modifier
+                            .background(colors.surface.copy(alpha = 0.9f), CircleShape)
+                            .border(1.dp, colors.border, CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Timer,
@@ -187,7 +184,9 @@ fun CaptureScreen(
 
                     IconButton(
                         onClick = { autoEnhance = !autoEnhance },
-                        modifier = Modifier.background(Color(0xFF1E2127).copy(alpha = 0.8f), CircleShape)
+                        modifier = Modifier
+                            .background(colors.surface.copy(alpha = 0.9f), CircleShape)
+                            .border(1.dp, colors.border, CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AutoFixHigh,
@@ -198,7 +197,7 @@ fun CaptureScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Shutter Button
             Row(
@@ -206,16 +205,17 @@ fun CaptureScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                NeuButton(
+                AppButton(
                     onClick = { handleShutter() },
-                    cornerRadius = 35.dp,
-                    modifier = Modifier.size(70.dp)
+                    cornerRadius = 32.dp,
+                    isAccent = true,
+                    modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.CameraAlt,
                         contentDescription = "Shutter",
                         tint = colors.accent,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
@@ -223,7 +223,7 @@ fun CaptureScreen(
 
         // Multi-Photo Pages Tray
         if (capturedPhotosBase64.isNotEmpty()) {
-            NeuCard(modifier = Modifier.fillMaxWidth()) {
+            AppCard(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     text = "Question Pages (${capturedPhotosBase64.size} captured)",
                     fontSize = 13.sp,
@@ -237,7 +237,7 @@ fun CaptureScreen(
                             modifier = Modifier
                                 .size(width = 70.dp, height = 90.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(colors.darkShadow)
+                                .background(colors.control)
                                 .border(1.dp, colors.accent.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -247,7 +247,7 @@ fun CaptureScreen(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-                NeuTextField(
+                AppTextField(
                     value = promptNote,
                     onValueChange = { promptNote = it },
                     label = "Optional Question Hint",
@@ -255,11 +255,11 @@ fun CaptureScreen(
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
-                NeuButton(
+                AppButton(
                     onClick = {
                         isAnalyzing = true
                         scope.launch {
-                            delay(1200) // Simulated AI call with fallback
+                            delay(1000)
                             isAnalyzing = false
                             val newAnswer = Answer(
                                 subject = "Mathematics",
@@ -280,11 +280,11 @@ fun CaptureScreen(
                     isAccent = true
                 ) {
                     if (isAnalyzing) {
-                        CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Analyzing Question with AI...", color = colors.textPrimary, fontSize = 13.sp)
+                        Text("Analyzing Question with AI...", color = colors.textPrimary, fontSize = 12.sp)
                     } else {
-                        Text("Send to AI Provider", color = colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Send to AI Provider", color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

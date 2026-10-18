@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,10 +15,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silentstudy.data.model.Answer
-import com.silentstudy.ui.components.NeuButton
-import com.silentstudy.ui.components.NeuCard
-import com.silentstudy.ui.components.NeuTextField
-import com.silentstudy.ui.theme.LocalNeuColors
+import com.silentstudy.ui.components.AppButton
+import com.silentstudy.ui.components.AppCard
+import com.silentstudy.ui.components.AppTextField
+import com.silentstudy.ui.theme.LocalAppColors
 
 @Composable
 fun AnswersScreen(
@@ -28,11 +27,10 @@ fun AnswersScreen(
     onToggleStar: (Long) -> Unit,
     onDeleteAnswer: (Answer) -> Unit
 ) {
-    val colors = LocalNeuColors.current
+    val colors = LocalAppColors.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedSubject by remember { mutableStateOf("All") }
     var starredOnly by remember { mutableStateOf(false) }
-    var selectedAnswerDetail by remember { mutableStateOf<Answer?>(null) }
 
     val subjects = listOf("All", "Mathematics", "Physics", "Chemistry", "Biology", "General")
 
@@ -59,7 +57,7 @@ fun AnswersScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(modifier = Modifier.weight(1f)) {
-                NeuTextField(
+                AppTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     label = "",
@@ -97,10 +95,10 @@ fun AnswersScreen(
         // Answers List
         LazyColumn(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             items(filtered, key = { it.id }) { answer ->
-                NeuCard(modifier = Modifier.fillMaxWidth()) {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -170,10 +168,10 @@ fun AnswersScreen(
                             color = colors.textSecondary
                         )
 
-                        NeuButton(
+                        AppButton(
                             onClick = { onPlayAnswer(answer) },
                             isAccent = true,
-                            modifier = Modifier.height(38.dp)
+                            modifier = Modifier.height(36.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = colors.textPrimary, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))

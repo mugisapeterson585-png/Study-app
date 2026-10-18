@@ -324,63 +324,80 @@ class SilentStudyService : Service() {
 }`
   },
   {
-    name: 'NeumorphicModifier.kt',
-    path: 'app/src/main/java/com/silentstudy/ui/NeumorphicModifier.kt',
-    description: 'Jetpack Compose neumorphic dual-shadow modifier with API 24 fallback',
+    name: 'AppComponents.kt',
+    path: 'app/src/main/java/com/silentstudy/ui/components/AppComponents.kt',
+    description: 'Flat Dark Low-Glare UI Components (Zero Neumorphism, Zero White)',
     language: 'kotlin',
-    content: `package com.silentstudy.ui
+    content: `package com.silentstudy.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.silentstudy.ui.theme.LocalAppColors
 
 /**
- * Reusable Compose Neumorphism Modifier (Section 1)
- * Uses light top-left shadow and dark bottom-right shadow.
- * Light surface: #E0E5EC, Dark surface: #2B2E35.
+ * Flat Dark Low-Glare UI Components (Zero Neumorphism, Zero White)
+ * Uses solid dark surfaces (#121418, #1B1E24) with subtle 1dp borders (#2E333D).
  */
-fun Modifier.neumorphic(
-    isPressed: Boolean = false,
-    cornerRadius: Dp = 24.dp,
-    elevation: Dp = 6.dp,
-    lightShadowColor: Color = Color.White.copy(alpha = 0.9f),
-    darkShadowColor: Color = Color(0xFFA3B1C6).copy(alpha = 0.6f)
-): Modifier = this.drawBehind {
-    drawIntoCanvas { canvas ->
-        if (!isPressed) {
-            // Raised State: Top-Left Light Shadow
-            val lightPaint = Paint().apply {
-                color = lightShadowColor
-            }
-            canvas.drawRoundRect(
-                left = -elevation.toPx() / 2,
-                top = -elevation.toPx() / 2,
-                right = size.width - elevation.toPx() / 2,
-                bottom = size.height - elevation.toPx() / 2,
-                radiusX = cornerRadius.toPx(),
-                radiusY = cornerRadius.toPx(),
-                paint = lightPaint
-            )
+@Composable
+fun AppCard(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 16.dp,
+    borderColor: Color? = null,
+    backgroundColor: Color? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val colors = LocalAppColors.current
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(cornerRadius))
+            .background(backgroundColor ?: colors.surface)
+            .border(1.dp, borderColor ?: colors.border, RoundedCornerShape(cornerRadius))
+            .padding(16.dp)
+    ) {
+        Column(content = content)
+    }
+}
 
-            // Bottom-Right Dark Shadow
-            val darkPaint = Paint().apply {
-                color = darkShadowColor
-            }
-            canvas.drawRoundRect(
-                left = elevation.toPx() / 2,
-                top = elevation.toPx() / 2,
-                right = size.width + elevation.toPx() / 2,
-                bottom = size.height + elevation.toPx() / 2,
-                radiusX = cornerRadius.toPx(),
-                radiusY = cornerRadius.toPx(),
-                paint = darkPaint
-            )
-        }
+@Composable
+fun AppButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isAccent: Boolean = false,
+    cornerRadius: Dp = 14.dp,
+    content: @Composable RowScope.() -> Unit
+) {
+    val colors = LocalAppColors.current
+    val bg = if (isAccent) colors.accent.copy(alpha = 0.25f) else colors.control
+    val borderCol = if (isAccent) colors.accent.copy(alpha = 0.6f) else colors.border
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minHeight = 48.dp)
+            .clip(RoundedCornerShape(cornerRadius))
+            .background(bg)
+            .border(1.dp, borderCol, RoundedCornerShape(cornerRadius))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+            content = content
+        )
     }
 }`
   },
@@ -530,7 +547,7 @@ Private, earbuds-only AI study companion for quiet places like libraries.
 ## Architecture
 - MinSdk: 24 (Android 7.0 Nougat)
 - TargetSdk: 34
-- Jetpack Compose + Neumorphic Soft UI
+- Jetpack Compose + Flat Dark Low-Glare UI (Zero Neumorphism, Zero White)
 - Provider-Agnostic AI Layer (Gemini, Claude, OpenAI, Custom)
 - Desk-Tap Accelerometer Sensor Engine with High-pass Filter
 - Earbuds-Only Audio Guard (Never plays through phone speaker)

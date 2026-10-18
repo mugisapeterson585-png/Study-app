@@ -7,74 +7,87 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-data class NeuColors(
+data class AppThemeColors(
     val background: Color,
     val surface: Color,
-    val lightShadow: Color,
-    val darkShadow: Color,
+    val control: Color,
+    val border: Color,
     val accent: Color,
+    val error: Color,
     val textPrimary: Color,
-    val textSecondary: Color
+    val textSecondary: Color,
+    val lightShadow: Color = border,
+    val darkShadow: Color = background
 )
 
-val LocalNeuColors = staticCompositionLocalOf {
-    NeuColors(
-        background = NeuDarkBg,
-        surface = NeuDarkSurface,
-        lightShadow = NeuDarkLightShadow,
-        darkShadow = NeuDarkDarkShadow,
-        accent = NeuDarkAccent,
-        textPrimary = NeuDarkTextPrimary,
-        textSecondary = NeuDarkTextSecondary
+val LocalAppColors = staticCompositionLocalOf {
+    AppThemeColors(
+        background = AppDarkBg,
+        surface = AppDarkSurface,
+        control = AppDarkControl,
+        border = AppDarkBorder,
+        accent = AppDarkAccent,
+        error = AppDarkError,
+        textPrimary = AppDarkTextPrimary,
+        textSecondary = AppDarkTextSecondary
     )
 }
 
+// Backward compatibility alias for LocalNeuColors
+val LocalNeuColors = LocalAppColors
+typealias NeuColors = AppThemeColors
+
 @Composable
 fun SilentStudyTheme(
-    isDarkMode: Boolean = true,         // Default DARK (FIX 2)
-    isUltraDimMode: Boolean = false,     // Ultra dim warm option (FIX 2)
+    isDarkMode: Boolean = true,
+    isUltraDimMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val neuColors = when {
-        isUltraDimMode -> NeuColors(
-            background = NeuUltraDimBg,
-            surface = NeuUltraDimSurface,
-            lightShadow = NeuUltraDimLightShadow,
-            darkShadow = NeuUltraDimDarkShadow,
-            accent = NeuUltraDimAccent,
-            textPrimary = NeuUltraDimTextPrimary,
-            textSecondary = NeuUltraDimTextSecondary
+    val appColors = if (isUltraDimMode) {
+        AppThemeColors(
+            background = AppUltraDimBg,
+            surface = AppUltraDimSurface,
+            control = AppUltraDimControl,
+            border = AppUltraDimBorder,
+            accent = AppUltraDimAccent,
+            error = AppUltraDimError,
+            textPrimary = AppUltraDimTextPrimary,
+            textSecondary = AppUltraDimTextSecondary
         )
-        isDarkMode -> NeuColors(
-            background = NeuDarkBg,
-            surface = NeuDarkSurface,
-            lightShadow = NeuDarkLightShadow,
-            darkShadow = NeuDarkDarkShadow,
-            accent = NeuDarkAccent,
-            textPrimary = NeuDarkTextPrimary,
-            textSecondary = NeuDarkTextSecondary
-        )
-        else -> NeuColors(
-            background = NeuLightBg,
-            surface = NeuLightSurface,
-            lightShadow = NeuLightLightShadow,
-            darkShadow = NeuLightDarkShadow,
-            accent = NeuLightAccent,
-            textPrimary = NeuLightTextPrimary,
-            textSecondary = NeuLightTextSecondary
+    } else {
+        AppThemeColors(
+            background = AppDarkBg,
+            surface = AppDarkSurface,
+            control = AppDarkControl,
+            border = AppDarkBorder,
+            accent = AppDarkAccent,
+            error = AppDarkError,
+            textPrimary = AppDarkTextPrimary,
+            textSecondary = AppDarkTextSecondary
         )
     }
 
     val materialColors = darkColorScheme(
-        primary = neuColors.accent,
-        background = neuColors.background,
-        surface = neuColors.surface,
-        onPrimary = neuColors.background,
-        onBackground = neuColors.textPrimary,
-        onSurface = neuColors.textPrimary
+        primary = appColors.accent,
+        onPrimary = appColors.background,
+        primaryContainer = appColors.control,
+        onPrimaryContainer = appColors.textPrimary,
+        background = appColors.background,
+        onBackground = appColors.textPrimary,
+        surface = appColors.surface,
+        onSurface = appColors.textPrimary,
+        surfaceVariant = appColors.control,
+        onSurfaceVariant = appColors.textSecondary,
+        outline = appColors.border,
+        outlineVariant = appColors.border,
+        error = appColors.error,
+        onError = appColors.background
     )
 
-    CompositionLocalProvider(LocalNeuColors provides neuColors) {
+    CompositionLocalProvider(
+        LocalAppColors provides appColors,
+        LocalNeuColors provides appColors
+    ) {
         MaterialTheme(
             colorScheme = materialColors,
             content = content
