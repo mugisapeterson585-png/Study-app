@@ -1,0 +1,11 @@
+{
+  "name": "SilentStudy - Private AI Study Companion",
+  "description": "Earbuds-only AI study companion for quiet places like libraries with silent desk-tap gestures and multi-provider AI support.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
