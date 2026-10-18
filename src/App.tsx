@@ -66,11 +66,16 @@ export default function App() {
     const loadedAnswers = AppStorage.getAnswers();
     setAnswers(loadedAnswers);
 
-    // Apply dark mode if set
-    if (loadedSettings.isDarkMode) {
-      document.documentElement.classList.add('dark');
+    // Apply theme (Dark mode default, ultra-dim warm night mode, zero pure white)
+    if (loadedSettings.isUltraDimMode) {
+      document.documentElement.classList.add('ultra-dim');
+      document.documentElement.classList.remove('light-theme');
+    } else if (!loadedSettings.isDarkMode) {
+      document.documentElement.classList.add('light-theme');
+      document.documentElement.classList.remove('ultra-dim');
     } else {
-      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.remove('ultra-dim');
+      document.documentElement.classList.remove('light-theme');
     }
 
     // Subscribe to Earbuds guard

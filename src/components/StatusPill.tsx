@@ -43,20 +43,23 @@ export const StatusPill: React.FC<StatusPillProps> = ({
   return (
     <header className="sticky top-0 z-30 px-3 py-2.5 backdrop-blur-md bg-[#E0E5EC]/85 dark:bg-[#2B2E35]/85 transition-colors">
       <div className="max-w-4xl mx-auto flex items-center justify-between gap-2">
-        {/* Left: Brand + Earbuds status */}
+        {/* Left: Brand + Credits + Earbuds status */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full neu-pressed text-xs">
-            <span className="font-bold tracking-tight text-slate-800 dark:text-slate-100 hidden sm:inline">
+            <span className="font-bold tracking-tight text-[#C9CED6] hidden sm:inline">
               SilentStudy
+            </span>
+            <span className="text-[10px] font-semibold text-[#6EA8FE] px-1.5 py-0.5 rounded-md neu-raised hidden md:inline">
+              Savage Tech
             </span>
             <span className="text-slate-400 hidden sm:inline" aria-hidden="true">·</span>
             <button
               onClick={onToggleEarbuds}
-              title={hasEarbuds ? 'Earbuds connected. Tap to simulate disconnect.' : 'Earbuds disconnected! Speaker blocked.'}
+              title={hasEarbuds ? 'Earbuds connected. Tap to test privacy cutoff.' : 'Earbuds disconnected! Speaker blocked.'}
               className={`flex items-center gap-1.5 font-medium transition-colors cursor-pointer ${
                 hasEarbuds 
-                  ? 'text-blue-600 dark:text-blue-400 font-semibold' 
-                  : 'text-amber-600 dark:text-amber-400 font-bold animate-pulse'
+                  ? 'text-[#6EA8FE] font-semibold' 
+                  : 'text-amber-500 font-bold animate-pulse'
               }`}
             >
               {hasEarbuds ? <Headphones size={13} /> : <VolumeX size={13} />}

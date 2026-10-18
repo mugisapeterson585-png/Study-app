@@ -2,23 +2,34 @@
 
 @layer base {
   :root {
-    --neu-bg: #E0E5EC;
-    --neu-surface: #E0E5EC;
-    --neu-light-shadow: rgba(255, 255, 255, 0.9);
-    --neu-dark-shadow: rgba(163, 177, 198, 0.6);
-    --neu-text: #2D3748;
-    --neu-text-muted: #718096;
-    --neu-accent: #3B82F6;
+    /* Default: Dark Neumorphism (FIX 2: Glare-free, NO pure #FFFFFF) */
+    --neu-bg: #1E2127;
+    --neu-surface: #1E2127;
+    --neu-light-shadow: #2A2E36;
+    --neu-dark-shadow: #14161A;
+    --neu-text: #C9CED6;
+    --neu-text-muted: #8E95A2;
+    --neu-accent: #6EA8FE;
   }
 
-  .dark {
-    --neu-bg: #2B2E35;
-    --neu-surface: #2B2E35;
-    --neu-light-shadow: rgba(53, 57, 65, 0.7);
-    --neu-dark-shadow: rgba(20, 22, 26, 0.9);
-    --neu-text: #E2E8F0;
-    --neu-text-muted: #94A3B8;
-    --neu-accent: #60A5FA;
+  .ultra-dim {
+    --neu-bg: #141619;
+    --neu-surface: #141619;
+    --neu-light-shadow: #1D2026;
+    --neu-dark-shadow: #0D0E10;
+    --neu-text: #B0B6BF;
+    --neu-text-muted: #7A818E;
+    --neu-accent: #5C93E6;
+  }
+
+  .light-theme {
+    --neu-bg: #DDE2EA;
+    --neu-surface: #DDE2EA;
+    --neu-light-shadow: #F4F7FC;
+    --neu-dark-shadow: #B8C0CC;
+    --neu-text: #2D323B;
+    --neu-text-muted: #666F7E;
+    --neu-accent: #3B82F6;
   }
 
   body {
@@ -30,22 +41,22 @@
   }
 }
 
-/* Neumorphic shadow utilities */
+/* Neumorphic shadow utilities (Never uses pure white #FFFFFF) */
 .neu-raised {
   background-color: var(--neu-surface);
-  box-shadow: -5px -5px 12px var(--neu-light-shadow), 5px 5px 12px var(--neu-dark-shadow);
+  box-shadow: -4px -4px 10px var(--neu-light-shadow), 4px 4px 10px var(--neu-dark-shadow);
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .neu-raised-sm {
   background-color: var(--neu-surface);
-  box-shadow: -3px -3px 7px var(--neu-light-shadow), 3px 3px 7px var(--neu-dark-shadow);
+  box-shadow: -2px -2px 6px var(--neu-light-shadow), 2px 2px 6px var(--neu-dark-shadow);
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .neu-raised-lg {
   background-color: var(--neu-surface);
-  box-shadow: -8px -8px 20px var(--neu-light-shadow), 8px 8px 20px var(--neu-dark-shadow);
+  box-shadow: -6px -6px 16px var(--neu-light-shadow), 6px 6px 16px var(--neu-dark-shadow);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -56,22 +67,15 @@
 }
 
 .neu-convex {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(0, 0, 0, 0.05));
+  background: linear-gradient(145deg, rgba(42, 46, 54, 0.4), rgba(20, 22, 26, 0.4));
   background-color: var(--neu-surface);
-  box-shadow: -5px -5px 12px var(--neu-light-shadow), 5px 5px 12px var(--neu-dark-shadow);
-}
-
-.neu-concave {
-  background: linear-gradient(145deg, rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.2));
-  background-color: var(--neu-surface);
-  box-shadow: -5px -5px 12px var(--neu-light-shadow), 5px 5px 12px var(--neu-dark-shadow);
+  box-shadow: -4px -4px 10px var(--neu-light-shadow), 4px 4px 10px var(--neu-dark-shadow);
 }
 
 .neu-accent-glow {
-  box-shadow: 0 0 16px rgba(59, 130, 246, 0.45);
+  box-shadow: 0 0 16px rgba(110, 168, 254, 0.35);
 }
 
-/* Custom styling for KaTeX math container in neumorphic theme */
 .katex-display {
   margin: 0.5em 0 !important;
   overflow-x: auto;
@@ -79,7 +83,6 @@
   padding: 0.25rem 0;
 }
 
-/* Desk knock ripple effect */
 @keyframes knock-ripple {
   0% {
     transform: scale(0.8);

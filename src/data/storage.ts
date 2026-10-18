@@ -60,8 +60,9 @@ const DEFAULT_PROFILES: AiProfile[] = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  isDarkMode: false,
-  accentColor: '#3B82F6',
+  isDarkMode: true, // Dark neumorphism DEFAULT (FIX 2)
+  isUltraDimMode: false,
+  accentColor: '#6EA8FE',
   textSize: 'medium',
 
   earbudsOnlyMode: true,

@@ -89,7 +89,8 @@ export type PlaybackDetailMode = 'short' | 'detailed' | 'simple';
 
 export interface AppSettings {
   // Theme
-  isDarkMode: boolean;
+  isDarkMode: boolean;            // Dark by default (FIX 2)
+  isUltraDimMode: boolean;        // Ultra dim warm night mode (FIX 2)
   accentColor: string;
   textSize: 'small' | 'medium' | 'large';
 

@@ -396,6 +396,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </span>
           </div>
 
+          {/* Test Voice Button (FIX 1) */}
+          <div className="py-1">
+            <NeuButton
+              size="md"
+              fullWidth
+              onClick={() => {
+                const utterance = new SpeechSynthesisUtterance("SilentStudy voice test active. Earbuds private audio confirmed.");
+                utterance.rate = settings.playbackSpeed;
+                window.speechSynthesis.speak(utterance);
+              }}
+            >
+              <Volume2 size={16} className="mr-2 text-[#6EA8FE]" />
+              <span>Test Voice (Speaks in Earbuds)</span>
+            </NeuButton>
+          </div>
+
           <NeuToggle
             label="Earbuds-Only Mode"
             sublabel="Strict privacy guard. Instantly cuts off audio if earbuds disconnect."
@@ -526,28 +542,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <NeuCard elevation="raised" rounded="3xl" className="p-5 sm:p-6 flex flex-col gap-4">
           <div className="pb-3 border-b border-slate-300/40 dark:border-slate-700/40">
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-              Neumorphism Soft UI Theme
+              Neumorphism Soft UI Theme (FIX 2)
             </h3>
             <span className="text-xs text-slate-400">
-              Soft extruded & pressed surfaces (#E0E5EC light / #2B2E35 dark)
+              Dark theme is default. Pure white (#FFFFFF) is eliminated for glare-free library study.
             </span>
           </div>
 
           <NeuToggle
-            label="Dark Mode (Night Library Mode)"
-            sublabel="Soft slate dark neumorphism (#2B2E35) for dim library study environments."
+            label="Dark Neumorphism (Default)"
+            sublabel="Surface #1E2127 with glare-free off-white text #C9CED6 and soft blue accent #6EA8FE."
             checked={settings.isDarkMode}
             onChange={val => {
               const updated = { ...settings, isDarkMode: val };
               onUpdateSettings(updated);
               AppStorage.saveSettings(updated);
               if (val) {
-                document.documentElement.classList.add('dark');
+                document.documentElement.classList.remove('light-theme');
               } else {
-                document.documentElement.classList.remove('dark');
+                document.documentElement.classList.add('light-theme');
               }
             }}
           />
+
+          <NeuToggle
+            label="Ultra Dim Mode (Night Library)"
+            sublabel="Even darker warm slate tones (#141619) with reduced luminescence for night sessions."
+            checked={settings.isUltraDimMode}
+            onChange={val => {
+              const updated = { ...settings, isUltraDimMode: val };
+              onUpdateSettings(updated);
+              AppStorage.saveSettings(updated);
+              if (val) {
+                document.documentElement.classList.add('ultra-dim');
+              } else {
+                document.documentElement.classList.remove('ultra-dim');
+              }
+            }}
+          />
+
+          {/* Savage Tech Developer Credits */}
+          <div className="mt-4 p-3 rounded-2xl neu-pressed flex items-center justify-between text-xs">
+            <div>
+              <span className="font-bold text-slate-700 dark:text-slate-200 block">
+                Engineering & Architecture
+              </span>
+              <span className="text-slate-400">
+                Native Android Kotlin Jetpack Compose companion
+              </span>
+            </div>
+            <span className="px-2.5 py-1 rounded-xl neu-raised font-bold text-[#6EA8FE]">
+              Savage Tech
+            </span>
+          </div>
         </NeuCard>
       )}
 

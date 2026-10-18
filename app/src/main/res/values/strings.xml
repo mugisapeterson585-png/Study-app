@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">SilentStudy</string>
+    <string name="credits_developer">Credits: Savage Tech</string>
+    <string name="service_notification_title">SilentStudy Active</string>
+    <string name="service_notification_desc">Screen-off desk tap gestures and earbuds audio active.</string>
+    <string name="earbuds_required_message">Earbuds-Only Guard Active: Connect Bluetooth or wired earbuds to listen. Audio never plays through phone speaker.</string>
+</resources>
