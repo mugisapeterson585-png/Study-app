@@ -1,0 +1,77 @@
+name: Build Android APK
+
+# Runs on every push to main/master, and can also be started by hand
+# from the Actions tab ("Run workflow").
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build the web app
+        run: bunx vite build
+
+      - name: Add Capacitor (wraps the web app as an Android app)
+        run: bun add @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+
+      - name: Create Capacitor config
+        run: |
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.silentstudy.app",
+            "appName": "SilentStudy",
+            "webDir": "dist",
+            "server": { "androidScheme": "https" },
+            "plugins": { "CapacitorHttp": { "enabled": true } }
+          }
+          EOF
+
+      - name: Create the Android project
+        run: npx cap add android
+
+      - name: Add permissions (camera, mic, earbuds, wake lock)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.BLUETOOTH" />\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application#' "$MANIFEST"
+          grep -c "uses-permission" "$MANIFEST"
+
+      - name: Copy web build into the Android project
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SilentStudy-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
