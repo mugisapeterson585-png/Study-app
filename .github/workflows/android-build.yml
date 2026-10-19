@@ -2,10 +2,15 @@ name: Build Android APK
 
 # Runs on every push to main/master, and can also be started by hand
 # from the Actions tab ("Run workflow").
+# (Updated: cancels older runs when a new one starts, so builds don't pile up.)
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-apk:
