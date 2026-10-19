@@ -29,7 +29,23 @@ data class Answer(
     val createdAt: Long = System.currentTimeMillis(),
     val lastPlayedAt: Long? = null,
     val timesReviewed: Int = 0,
-    val timesCorrect: Int = 0
+    val timesCorrect: Int = 0,
+    val photoHash: String? = null,  // Deduplication hash
+    val status: String = "completed", // "completed", "pending_offline", "failed"
+    val errorMessage: String? = null
+)
+
+@Entity(tableName = "api_usage_logs")
+data class ApiUsageLog(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val provider: String,
+    val model: String,
+    val promptTokens: Int,
+    val completionTokens: Int,
+    val totalTokens: Int,
+    val estimatedCostUsd: Double
 )
 
 class AnswerConverters {

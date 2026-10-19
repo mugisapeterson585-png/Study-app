@@ -9,20 +9,20 @@ import android.os.Build
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
 /**
- * Native TextToSpeech Manager (FIX 1)
- * Initialises Android native TextToSpeech with OnInitListener, UtteranceProgressListener,
- * AudioAttributes(USAGE_MEDIA, CONTENT_TYPE_SPEECH), and AudioFocus management.
- * Checks for missing voices/engine and provides Intent to open system TTS settings.
+ * Native TextToSpeech Manager (FIX 1 & Section 5 Speech Test Mode)
+ * Enforces hardware EarbudsAudioGuard except during temporary 10-minute Test Mode.
+ * Handles AudioFocus, pauses on calls, and provides spoken status prompts.
  */
 class SilentStudyTtsManager(
     private val context: Context,
-    private val earbudsGuard: EarbudsAudioGuard
+    val earbudsGuard: EarbudsAudioGuard
 ) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
@@ -37,6 +37,13 @@ class SilentStudyTtsManager(
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
+    // Test mode 10-minute auto-expiry countdown in seconds
+    private val _testModeSecondsRemaining = MutableStateFlow<Int?>(null)
+    val testModeSecondsRemaining: StateFlow<Int?> = _testModeSecondsRemaining.asStateFlow()
+
+    private var testModeJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.Main)
 
     var onUtteranceFinished: ((utteranceId: String) -> Unit)? = null
     var onUtteranceStarted: ((utteranceId: String) -> Unit)? = null
@@ -53,14 +60,12 @@ class SilentStudyTtsManager(
         if (status == TextToSpeech.SUCCESS) {
             val engine = tts ?: return
 
-            // Audio attributes for media speech playback
             val audioAttributes = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
             engine.setAudioAttributes(audioAttributes)
 
-            // Set language from locale or fallback to English
             val locale = Locale.getDefault()
             val result = engine.setLanguage(locale)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -100,8 +105,39 @@ class SilentStudyTtsManager(
     }
 
     /**
-     * Speaks text through earbuds only.
-     * Enforces EarbudsAudioGuard before issuing speak call.
+     * Activates temporary Speech Test Mode with 10-minute auto-shutoff
+     */
+    fun enableTestMode() {
+        earbudsGuard.setTestMode(true)
+        testModeJob?.cancel()
+        testModeJob = scope.launch {
+            var seconds = 600 // 10 minutes
+            _testModeSecondsRemaining.value = seconds
+            while (seconds > 0) {
+                delay(1000)
+                seconds -= 1
+                _testModeSecondsRemaining.value = seconds
+            }
+            disableTestMode()
+        }
+    }
+
+    /**
+     * Disables Speech Test Mode and enforces earbuds-only privacy
+     */
+    fun disableTestMode() {
+        testModeJob?.cancel()
+        testModeJob = null
+        _testModeSecondsRemaining.value = null
+        earbudsGuard.setTestMode(false)
+        if (!earbudsGuard.evaluateAudioOutputs()) {
+            stop() // Halt any ongoing speech if earbuds are not plugged in
+        }
+    }
+
+    /**
+     * Speaks text through audio channel.
+     * Enforces EarbudsAudioGuard unless Test Mode is active.
      */
     fun speak(
         text: String,
@@ -109,8 +145,7 @@ class SilentStudyTtsManager(
         speechRate: Float = 1.0f,
         pitch: Float = 1.0f
     ): Boolean {
-        // Enforce Earbuds-only guard: NEVER play through phone speaker
-        if (!earbudsGuard.evaluateAudioOutputs()) {
+        if (!earbudsGuard.isPlaybackPermitted()) {
             _hasError.value = "Connect earbuds to listen. Audio blocked from speaker."
             return false
         }
@@ -145,10 +180,24 @@ class SilentStudyTtsManager(
 
     fun testVoice(rate: Float = 1.0f) {
         speak(
-            "SilentStudy voice test active. Earbuds private audio confirmed.",
+            "SilentStudy voice test active. Private earbud audio confirmed.",
             "test_voice_utterance",
             speechRate = rate
         )
+    }
+
+    fun playTestAnswer(rate: Float = 1.0f) {
+        speak(
+            "SilentStudy Sample Answer: The solution to the quadratic equation is x equals 1 half and x equals negative 3. Verified clear in audio channel.",
+            "sample_test_answer",
+            speechRate = rate
+        )
+    }
+
+    fun spokenPrompt(text: String) {
+        if (earbudsGuard.isPlaybackPermitted()) {
+            speak(text, "prompt_${System.currentTimeMillis()}", speechRate = 1.1f)
+        }
     }
 
     private fun requestAudioFocus() {
@@ -161,8 +210,12 @@ class SilentStudyTtsManager(
             audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                 .setAudioAttributes(audioAttributes)
                 .setOnAudioFocusChangeListener { focusChange ->
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
-                        stop()
+                    when (focusChange) {
+                        AudioManager.AUDIOFOCUS_LOSS -> stop()
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> stop()
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                            // Can duck volume if needed
+                        }
                     }
                 }
                 .build()
@@ -171,7 +224,11 @@ class SilentStudyTtsManager(
         } else {
             @Suppress("DEPRECATION")
             audioManager.requestAudioFocus(
-                { focusChange -> if (focusChange == AudioManager.AUDIOFOCUS_LOSS) stop() },
+                { focusChange ->
+                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        stop()
+                    }
+                },
                 AudioManager.STREAM_MUSIC,
                 AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
             )
@@ -187,9 +244,6 @@ class SilentStudyTtsManager(
         }
     }
 
-    /**
-     * Intent to open Android System TTS settings
-     */
     fun getOpenTtsSettingsIntent(): Intent {
         return Intent().apply {
             action = "com.android.settings.TTS_SETTINGS"
@@ -198,6 +252,7 @@ class SilentStudyTtsManager(
     }
 
     fun shutdown() {
+        disableTestMode()
         tts?.shutdown()
         tts = null
     }

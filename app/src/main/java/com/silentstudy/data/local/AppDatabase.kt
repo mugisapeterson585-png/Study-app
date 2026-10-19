@@ -7,14 +7,16 @@ import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.silentstudy.data.model.Answer
 import com.silentstudy.data.model.AnswerBlock
+import com.silentstudy.data.model.ApiUsageLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-@Database(entities = [Answer::class], version = 1, exportSchema = false)
+@Database(entities = [Answer::class, ApiUsageLog::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun answerDao(): AnswerDao
+    abstract fun usageDao(): UsageDao
 
     companion object {
         @Volatile

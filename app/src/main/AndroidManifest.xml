@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Bluetooth audio routing: Legacy API 24-30 vs Modern API 31+ -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -43,6 +45,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- Launcher shortcut to capture question -->
+            <intent-filter>
+                <action android:name="com.silentstudy.ACTION_CAPTURE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <!-- Foreground Service for Screen-Off Desk Operation -->
@@ -50,6 +58,30 @@
             android:name=".service.SilentStudyService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <!-- Quick Settings Tile Service -->
+        <service
+            android:name=".service.SilentStudyTileService"
+            android:exported="true"
+            android:label="SilentStudy"
+            android:icon="@android:drawable/ic_media_play"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- App Widget Provider -->
+        <receiver
+            android:name=".widget.SilentStudyWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/silentstudy_widget_info" />
+        </receiver>
 
     </application>
 

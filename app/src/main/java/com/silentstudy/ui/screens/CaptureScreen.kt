@@ -1,5 +1,7 @@
 package com.silentstudy.ui.screens
 
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Base64
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -31,17 +33,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.silentstudy.SilentStudyApp
+import com.silentstudy.ai.AnswerRequest
 import com.silentstudy.data.model.Answer
 import com.silentstudy.data.model.AnswerBlock
+import com.silentstudy.service.OfflineQueueWorker
 import com.silentstudy.ui.components.AppButton
 import com.silentstudy.ui.components.AppCard
 import com.silentstudy.ui.components.AppTextField
 import com.silentstudy.ui.theme.LocalAppColors
+import com.silentstudy.util.BudgetCheckResult
+import com.silentstudy.util.ImageUtils
+import com.silentstudy.util.TokenCostManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @Composable
 fun CaptureScreen(
+    app: SilentStudyApp,
     onAnswerGenerated: (Answer) -> Unit,
     onAnalyzeError: (String) -> Unit
 ) {
@@ -49,6 +59,7 @@ fun CaptureScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val colors = LocalAppColors.current
     val scope = rememberCoroutineScope()
+    val tokenManager = remember { TokenCostManager(app.database.usageDao()) }
 
     val cameraController = remember {
         LifecycleCameraController(context).apply {
@@ -61,8 +72,13 @@ fun CaptureScreen(
     var promptNote by remember { mutableStateOf("") }
     var isTimerMode by remember { mutableStateOf(false) }
     var timerSecondsRemaining by remember { mutableStateOf<Int?>(null) }
-    var autoEnhance by remember { mutableStateOf(true) }
+    var isTorchOn by remember { mutableStateOf(false) }
     var isAnalyzing by remember { mutableStateOf(false) }
+    var analyzeStatusMessage by remember { mutableStateOf<String?>(null) }
+    var budgetWarningMessage by remember { mutableStateOf<String?>(null) }
+
+    // Batch capture queue
+    var batchQueueCount by remember { mutableStateOf(0) }
 
     val takePicture = {
         cameraController.takePicture(
@@ -72,10 +88,21 @@ fun CaptureScreen(
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining())
                     buffer.get(bytes)
-                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                    capturedPhotosBase64 = capturedPhotosBase64 + base64
+                    val rawBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+                    // Downscale and compress to max 1280px, JPEG ~80
+                    val compressedBase64 = ImageUtils.downscaleAndCompressBase64(rawBase64, 1280, 80)
+
+                    scope.launch {
+                        val aiSettings = app.preferencesRepository.aiSettings.first()
+                        val maxAllowed = aiSettings.maxImagesPerQuestion
+                        if (capturedPhotosBase64.size < maxAllowed) {
+                            capturedPhotosBase64 = capturedPhotosBase64 + compressedBase64
+                        }
+                    }
                     image.close()
                 }
+
                 override fun onError(exception: ImageCaptureException) {
                     // Fallback to sample photo if camera is unavailable
                     capturedPhotosBase64 = capturedPhotosBase64 + "sample_exam_photo"
@@ -100,12 +127,132 @@ fun CaptureScreen(
         }
     }
 
+    val processAnswer = {
+        scope.launch {
+            if (capturedPhotosBase64.isEmpty()) return@launch
+
+            isAnalyzing = true
+            analyzeStatusMessage = "Checking cache & budget..."
+
+            val aiSettings = app.preferencesRepository.aiSettings.first()
+            val budgetSettings = app.preferencesRepository.budgetSettings.first()
+
+            // 1. Photo deduplication cache check (SHA-256)
+            val combinedHash = ImageUtils.computeSha256Hash(capturedPhotosBase64.joinToString(","))
+            val cachedAnswer = app.database.answerDao().findByPhotoHash(combinedHash)
+
+            if (cachedAnswer != null) {
+                analyzeStatusMessage = "Reusing cached answer (0 tokens used)."
+                delay(400)
+                isAnalyzing = false
+                onAnswerGenerated(cachedAnswer)
+                return@launch
+            }
+
+            // 2. Budget cap protection
+            val budgetCheck = tokenManager.checkBudget(budgetSettings, aiSettings.maxTokensAnswer)
+            when (budgetCheck) {
+                is BudgetCheckResult.Blocked -> {
+                    isAnalyzing = false
+                    analyzeStatusMessage = budgetCheck.message
+                    onAnalyzeError(budgetCheck.message)
+                    return@launch
+                }
+                is BudgetCheckResult.Warning -> {
+                    budgetWarningMessage = budgetCheck.message
+                }
+                is BudgetCheckResult.Allowed -> {
+                    budgetWarningMessage = null
+                }
+            }
+
+            // 3. Connectivity check: If offline, save to pending queue and enqueue WorkManager
+            val connManager = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val activeNet = connManager.activeNetwork
+            val caps = connManager.getNetworkCapabilities(activeNet)
+            val isOnline = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+            if (!isOnline) {
+                val pendingAnswer = Answer(
+                    subject = "Queued Question",
+                    questionText = promptNote.ifEmpty { "Offline Captured Photo" },
+                    imagePaths = capturedPhotosBase64,
+                    shortAnswer = "Question saved offline. Will auto-process when connection returns.",
+                    simpleExplanation = "",
+                    blocks = listOf(AnswerBlock("text", "Offline: queued for network sync", "Question queued for offline network sync")),
+                    photoHash = combinedHash,
+                    status = "pending_offline"
+                )
+                val newId = app.database.answerDao().insertAnswer(pendingAnswer)
+                OfflineQueueWorker.enqueueWork(context)
+
+                isAnalyzing = false
+                analyzeStatusMessage = "No internet. Answer #$newId saved to offline queue."
+                capturedPhotosBase64 = emptyList()
+                promptNote = ""
+                return@launch
+            }
+
+            // 4. Online AI Generation with fallback
+            analyzeStatusMessage = "Sending to ${aiSettings.provider} (${aiSettings.model})..."
+
+            try {
+                val result = app.aiProviderManager.generateAnswerWithFallback(
+                    provider = aiSettings.provider,
+                    apiKey = aiSettings.apiKey,
+                    model = aiSettings.model,
+                    baseUrl = aiSettings.baseUrl,
+                    fallbackProvider = aiSettings.fallbackProvider,
+                    fallbackApiKey = aiSettings.fallbackApiKey,
+                    fallbackModel = aiSettings.fallbackModel,
+                    request = AnswerRequest(
+                        imagesBase64 = capturedPhotosBase64,
+                        promptNote = promptNote.ifEmpty { null },
+                        conciseMode = aiSettings.conciseMode,
+                        maxOutputTokens = aiSettings.maxTokensAnswer,
+                        lazyExplanation = aiSettings.lazyExplanation
+                    )
+                )
+
+                // 5. Record real token usage
+                tokenManager.recordUsage(
+                    provider = aiSettings.provider,
+                    model = result.rawModelUsed.ifEmpty { aiSettings.model },
+                    promptTokens = result.usage.promptTokens,
+                    completionTokens = result.usage.completionTokens,
+                    pricePerMInput = budgetSettings.pricePerMInputUsd,
+                    pricePerMOutput = budgetSettings.pricePerMOutputUsd
+                )
+
+                val answerToSave = Answer(
+                    subject = result.subject,
+                    questionText = result.questionText,
+                    imagePaths = capturedPhotosBase64,
+                    shortAnswer = result.shortAnswer,
+                    blocks = result.blocks,
+                    simpleExplanation = result.simpleExplanation,
+                    photoHash = combinedHash,
+                    status = "completed"
+                )
+
+                isAnalyzing = false
+                capturedPhotosBase64 = emptyList()
+                promptNote = ""
+                onAnswerGenerated(answerToSave)
+            } catch (e: Exception) {
+                isAnalyzing = false
+                analyzeStatusMessage = "Error: ${e.message}"
+                onAnalyzeError(e.message ?: "Analysis failed")
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Dark Viewfinder Frame (Flat low-glare, zero white)
         AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -127,7 +274,7 @@ fun CaptureScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Document framing reticle
+                // Framing reticle
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -145,8 +292,8 @@ fun CaptureScreen(
                     )
                 }
 
-                // Timer countdown overlay
-                if (timerSecondsRemaining != null) {
+                // Shutter timer countdown overlay
+                timerSecondsRemaining?.let { sec ->
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -154,44 +301,51 @@ fun CaptureScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "${timerSecondsRemaining}",
-                            color = colors.accent,
+                            text = "$sec",
                             fontSize = 64.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = colors.accent
                         )
                     }
                 }
 
-                // Controls overlay
+                // Camera Controls Overlay
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .align(Alignment.TopCenter)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Flashlight toggle
                     IconButton(
-                        onClick = { isTimerMode = !isTimerMode },
+                        onClick = {
+                            isTorchOn = !isTorchOn
+                            cameraController.enableTorch(isTorchOn)
+                        },
                         modifier = Modifier
-                            .background(colors.surface.copy(alpha = 0.9f), CircleShape)
-                            .border(1.dp, colors.border, CircleShape)
+                            .clip(CircleShape)
+                            .background(colors.surface.copy(alpha = 0.8f))
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Timer,
-                            contentDescription = "Timer 3s",
-                            tint = if (isTimerMode) colors.accent else colors.textSecondary
+                            imageVector = if (isTorchOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                            contentDescription = "Flashlight",
+                            tint = if (isTorchOn) colors.accent else colors.textSecondary
                         )
                     }
 
+                    // 3-second timer toggle
                     IconButton(
-                        onClick = { autoEnhance = !autoEnhance },
+                        onClick = { isTimerMode = !isTimerMode },
                         modifier = Modifier
-                            .background(colors.surface.copy(alpha = 0.9f), CircleShape)
-                            .border(1.dp, colors.border, CircleShape)
+                            .clip(CircleShape)
+                            .background(colors.surface.copy(alpha = 0.8f))
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AutoFixHigh,
-                            contentDescription = "Document Enhance",
-                            tint = if (autoEnhance) colors.accent else colors.textSecondary
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = "Timer",
+                            tint = if (isTimerMode) colors.accent else colors.textSecondary
                         )
                     }
                 }
@@ -221,70 +375,86 @@ fun CaptureScreen(
             }
         }
 
-        // Multi-Photo Pages Tray
+        // Question Pages Tray (Batch & Multi-Photo)
         if (capturedPhotosBase64.isNotEmpty()) {
             AppCard(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Question Pages (${capturedPhotosBase64.size} captured)",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Question Photos (${capturedPhotosBase64.size} captured)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary
+                    )
+                    AppButton(onClick = { capturedPhotosBase64 = emptyList() }) {
+                        Text("Clear", fontSize = 10.sp, color = colors.error)
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(capturedPhotosBase64) { index, _ ->
                         Box(
                             modifier = Modifier
-                                .size(width = 70.dp, height = 90.dp)
+                                .size(width = 75.dp, height = 95.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(colors.control)
                                 .border(1.dp, colors.accent.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("Page ${index + 1}", fontSize = 11.sp, color = colors.textPrimary)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Image, contentDescription = null, tint = colors.accent, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Page ${index + 1}", fontSize = 11.sp, color = colors.textPrimary)
+                            }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 AppTextField(
                     value = promptNote,
                     onValueChange = { promptNote = it },
-                    label = "Optional Question Hint",
-                    placeholder = "e.g. Solve part b, or show step-by-step substitution"
+                    label = "Optional Student Note / Specific Step",
+                    placeholder = "e.g. Solve part b, or show derivative"
                 )
+
+                if (budgetWarningMessage != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = budgetWarningMessage!!,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.error
+                    )
+                }
+
+                if (analyzeStatusMessage != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = analyzeStatusMessage!!,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.accent
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
                 AppButton(
-                    onClick = {
-                        isAnalyzing = true
-                        scope.launch {
-                            delay(1000)
-                            isAnalyzing = false
-                            val newAnswer = Answer(
-                                subject = "Mathematics",
-                                questionText = if (promptNote.isNotEmpty()) promptNote else "Calculate the roots and derivative of f(x) = 3x^2 - 12x + 9",
-                                imagePaths = emptyList(),
-                                shortAnswer = "The roots are x = 1 and x = 3. The derivative is f'(x) = 6x - 12.",
-                                simpleExplanation = "Factoring out 3 gives 3(x-1)(x-3) = 0. Differentiating each term with the power rule yields 6x minus 12.",
-                                blocks = listOf(
-                                    AnswerBlock("step", "Step 1: Factor 3(x^2 - 4x + 3) = 0", "Step 1: Factor out 3 to get x squared minus 4x plus 3 equals 0.", 1),
-                                    AnswerBlock("math", "(x - 1)(x - 3) = 0", "x minus 1 times x minus 3 equals zero."),
-                                    AnswerBlock("step", "Step 2: Differentiate f'(x) = d/dx(3x^2 - 12x + 9) = 6x - 12", "Step 2: Taking the derivative yields 6x minus 12.", 2)
-                                )
-                            )
-                            onAnswerGenerated(newAnswer)
-                        }
-                    },
+                    onClick = { processAnswer() },
                     modifier = Modifier.fillMaxWidth(),
-                    isAccent = true
+                    isAccent = true,
+                    enabled = !isAnalyzing
                 ) {
                     if (isAnalyzing) {
-                        CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Analyzing Question with AI...", color = colors.textPrimary, fontSize = 12.sp)
+                        Text("Analyzing Question...", color = colors.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     } else {
-                        Text("Send to AI Provider", color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Analyze & Solve with AI", color = colors.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

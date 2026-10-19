@@ -1,6 +1,5 @@
 package com.silentstudy.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,8 +13,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silentstudy.data.model.Answer
+import com.silentstudy.gestures.DeskTapSensorManager
 import com.silentstudy.ui.components.AppButton
 import com.silentstudy.ui.components.AppCard
+import com.silentstudy.ui.components.DeskKnockPad
 import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 
@@ -25,10 +26,15 @@ fun StudyScreen(
     isSessionActive: Boolean,
     sessionDurationSeconds: Long,
     answersHeardCount: Int,
+    sensorManager: DeskTapSensorManager,
+    sensitivity: Int,
+    onSensitivityChange: (Int) -> Unit,
     onToggleSession: () -> Unit
 ) {
     val colors = LocalAppColors.current
     var studyTab by remember { mutableStateOf("session") } // session, quiz, pomodoro
+
+    val suggestAutoTune by sensorManager.suggestAutoTune.collectAsState()
 
     // Pomodoro timer state
     var pomoMinutes by remember { mutableStateOf(25) }
@@ -64,6 +70,46 @@ fun StudyScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Auto-tune sensitivity prompt banner
+        if (suggestAutoTune) {
+            AppCard(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-Tune Sensitivity?",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.accent
+                        )
+                        Text(
+                            text = "Frequent tap re-tries detected. Adjust sensitivity for this desk surface?",
+                            fontSize = 10.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AppButton(
+                            onClick = {
+                                val newSens = (sensitivity + 1).coerceAtMost(10)
+                                onSensitivityChange(newSens)
+                                sensorManager.dismissAutoTune()
+                            },
+                            isAccent = true
+                        ) {
+                            Text("Adjust +1", fontSize = 10.sp, color = colors.accent)
+                        }
+                        AppButton(onClick = { sensorManager.dismissAutoTune() }) {
+                            Text("Dismiss", fontSize = 10.sp, color = colors.textSecondary)
+                        }
+                    }
+                }
+            }
+        }
+
         // Study Navigation Selector
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -74,21 +120,21 @@ fun StudyScreen(
                 isAccent = studyTab == "session",
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Session", fontSize = 12.sp, color = colors.textPrimary)
+                Text("Session", fontSize = 12.sp, color = if (studyTab == "session") colors.accent else colors.textPrimary)
             }
             AppButton(
                 onClick = { studyTab = "quiz" },
                 isAccent = studyTab == "quiz",
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Quiz Mode", fontSize = 12.sp, color = colors.textPrimary)
+                Text("Quiz Mode", fontSize = 12.sp, color = if (studyTab == "quiz") colors.accent else colors.textPrimary)
             }
             AppButton(
                 onClick = { studyTab = "pomodoro" },
                 isAccent = studyTab == "pomodoro",
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Pomodoro", fontSize = 12.sp, color = colors.textPrimary)
+                Text("Pomodoro", fontSize = 12.sp, color = if (studyTab == "pomodoro") colors.accent else colors.textPrimary)
             }
         }
 
@@ -154,6 +200,13 @@ fun StudyScreen(
                         )
                     }
                 }
+
+                // Live Tap Waves Box right on Study Screen (Section 3 RESTORE)
+                DeskKnockPad(
+                    sensorManager = sensorManager,
+                    sensitivity = sensitivity,
+                    onSensitivityChange = onSensitivityChange
+                )
             }
 
             "quiz" -> {

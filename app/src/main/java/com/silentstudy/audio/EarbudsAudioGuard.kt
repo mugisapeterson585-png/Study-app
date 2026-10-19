@@ -12,11 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Real hardware Earbuds Audio Guard (FIX 1)
+ * Real hardware Earbuds Audio Guard (FIX 1 & Section 5 Speech Test Mode)
  * Uses real AudioManager.getDevices(GET_DEVICES_OUTPUTS) and an AudioDeviceCallback.
  * Only allows Bluetooth A2DP, SCO, BLE Headset, and wired headsets/headphones.
- * Never plays through the phone speaker.
- * NO simulated defaults.
+ * Never plays through the phone speaker unless temporary Speech Test Mode is explicitly activated.
  */
 class EarbudsAudioGuard(private val context: Context) {
 
@@ -27,6 +26,10 @@ class EarbudsAudioGuard(private val context: Context) {
 
     private val _connectedDeviceName = MutableStateFlow<String?>(null)
     val connectedDeviceName: StateFlow<String?> = _connectedDeviceName.asStateFlow()
+
+    // Speech Test Mode state (OFF by default, allows temporary speaker playback for testing)
+    private val _isTestModeActive = MutableStateFlow(false)
+    val isTestModeActive: StateFlow<Boolean> = _isTestModeActive.asStateFlow()
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
@@ -39,11 +42,14 @@ class EarbudsAudioGuard(private val context: Context) {
     }
 
     init {
-        // Register real hardware callback
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             audioManager.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
         }
         evaluateAudioOutputs()
+    }
+
+    fun setTestMode(active: Boolean) {
+        _isTestModeActive.value = active
     }
 
     /**
@@ -77,6 +83,14 @@ class EarbudsAudioGuard(private val context: Context) {
         }
 
         return connected
+    }
+
+    /**
+     * Checks whether playback is permitted:
+     * Either physical earbuds are connected, or Test Mode is temporarily active.
+     */
+    fun isPlaybackPermitted(): Boolean {
+        return _isTestModeActive.value || evaluateAudioOutputs()
     }
 
     private fun isEarbudDevice(device: AudioDeviceInfo): Boolean {

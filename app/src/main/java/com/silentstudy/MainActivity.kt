@@ -1,7 +1,12 @@
 package com.silentstudy
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -19,9 +24,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.silentstudy.ai.AnswerRequest
 import com.silentstudy.data.model.Answer
 import com.silentstudy.data.model.AnswerBlock
 import com.silentstudy.gestures.DeskGesture
+import com.silentstudy.gestures.GestureAction
 import com.silentstudy.service.SilentStudyService
 import com.silentstudy.ui.components.AfterAnswerMenu
 import com.silentstudy.ui.components.StatusPill
@@ -30,15 +37,16 @@ import com.silentstudy.ui.theme.LocalAppColors
 import com.silentstudy.ui.theme.SilentStudyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Permissions handled
-    }
+    ) { _ -> }
+
+    private var batteryReceiver: BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,11 +62,20 @@ class MainActivity : ComponentActivity() {
             val aiSettings by app.preferencesRepository.aiSettings.collectAsState(
                 initial = com.silentstudy.data.repository.AiSettings()
             )
+            val budgetSettings by app.preferencesRepository.budgetSettings.collectAsState(
+                initial = com.silentstudy.data.repository.BudgetSettings()
+            )
             val audioSettings by app.preferencesRepository.audioSettings.collectAsState(
                 initial = com.silentstudy.data.repository.AudioSettings()
             )
             val gestureSettings by app.preferencesRepository.gestureSettings.collectAsState(
                 initial = com.silentstudy.data.repository.GestureSettings()
+            )
+            val firstRunCompleted by app.preferencesRepository.firstRunCompleted.collectAsState(
+                initial = true
+            )
+            val lowBatteryCutoff by app.preferencesRepository.lowBatteryPercent.collectAsState(
+                initial = 15
             )
 
             val answers by app.database.answerDao().getAllAnswers().collectAsState(initial = emptyList())
@@ -67,8 +84,9 @@ class MainActivity : ComponentActivity() {
 
             val scope = rememberCoroutineScope()
 
-            var activeTab by remember { mutableStateOf("capture") } // capture, answers, study, settings
+            var activeTab by remember { mutableStateOf("capture") } // capture, answers, study, settings, tap_controls, usage, diagnostics
             var isDeskScreenOffOpen by remember { mutableStateOf(false) }
+            var showFirstRunWizard by remember { mutableStateOf(false) }
 
             // Audio playback sequence state
             var currentPlayingAnswer by remember { mutableStateOf<Answer?>(null) }
@@ -82,9 +100,59 @@ class MainActivity : ComponentActivity() {
             var sessionDurationSeconds by remember { mutableStateOf(0L) }
             var answersHeardCount by remember { mutableStateOf(0) }
 
-            // Timer for active study session
+            // First run check
+            LaunchedEffect(firstRunCompleted) {
+                if (!firstRunCompleted) {
+                    showFirstRunWizard = true
+                }
+            }
+
+            // Restore interrupted playback on launch
+            LaunchedEffect(Unit) {
+                val lastPos = app.preferencesRepository.lastPlaybackPosition.first()
+                if (lastPos.first > 0) {
+                    val saved = app.database.answerDao().getAnswerById(lastPos.first)
+                    if (saved != null) {
+                        currentPlayingAnswer = saved
+                        currentBlockIndex = lastPos.second.coerceAtMost((saved.blocks.size - 1).coerceAtLeast(0))
+                    }
+                }
+            }
+
+            // Low Battery Guard
+            DisposableEffect(isSessionActive, lowBatteryCutoff) {
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(context: Context?, intent: Intent?) {
+                        if (intent?.action == Intent.ACTION_BATTERY_CHANGED) {
+                            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                            val batteryPct = if (level >= 0 && scale > 0) (level * 100 / scale) else 100
+
+                            if (batteryPct <= lowBatteryCutoff && isSessionActive) {
+                                isSessionActive = false
+                                app.ttsManager.spokenPrompt("Battery below $lowBatteryCutoff percent. Study session stopped.")
+                            }
+                        }
+                    }
+                }
+                batteryReceiver = receiver
+                registerReceiver(receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                onDispose {
+                    try {
+                        unregisterReceiver(receiver)
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // Active study session controller
             LaunchedEffect(isSessionActive) {
                 if (isSessionActive) {
+                    // Turn off speech test mode when study session starts (Section 5)
+                    if (app.ttsManager.testModeSecondsRemaining.value != null || audioSettings.testModeEnabled) {
+                        app.ttsManager.disableTestMode()
+                        app.preferencesRepository.setTestModeEnabled(false)
+                    }
+
                     SilentStudyService.startService(this@MainActivity)
                     while (isSessionActive) {
                         delay(1000)
@@ -95,7 +163,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Function to play sequential block
+            // Sequential audio block playback
             val playCurrentBlock: (Answer, Int) -> Unit = { answer, index ->
                 val block = answer.blocks.getOrNull(index)
                 if (block != null) {
@@ -111,6 +179,11 @@ class MainActivity : ComponentActivity() {
                         block.spoken
                     }
                     app.ttsManager.speak(speechText, "block_$index", speechRate = rate)
+
+                    // Persist current position for crash recovery
+                    scope.launch {
+                        app.preferencesRepository.saveLastPlaybackPosition(answer.id, index)
+                    }
                 } else {
                     // Finished all blocks -> Trigger After-Answer Menu
                     isPlaying = false
@@ -122,12 +195,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Utterance completion listener for block progression
+            // Utterance completion progression
             DisposableEffect(Unit) {
                 app.ttsManager.onUtteranceFinished = { utteranceId ->
                     if (utteranceId.startsWith("block_")) {
                         scope.launch {
-                            delay(400) // Pause between blocks / equations
+                            delay(400) // Pause between steps/equations
                             val nextIndex = currentBlockIndex + 1
                             currentBlockIndex = nextIndex
                             currentPlayingAnswer?.let { ans ->
@@ -153,13 +226,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Global Desk Gesture Handler
-            LaunchedEffect(Unit) {
+            // Global Customizable Desk Gesture Handler (Section 4)
+            LaunchedEffect(gestureSettings.customMappings, showAfterAnswerMenu, isPlaying, answers, currentPlayingAnswer) {
                 app.deskTapSensor.gestures.collectLatest { gesture ->
-                    when (gesture) {
-                        DeskGesture.SINGLE_TAP -> {
+                    val actionName = gestureSettings.customMappings[gesture.name] ?: GestureAction.PLAY_PAUSE.name
+                    val action = try {
+                        GestureAction.valueOf(actionName)
+                    } catch (_: Exception) {
+                        GestureAction.PLAY_PAUSE
+                    }
+
+                    when (action) {
+                        GestureAction.PLAY_PAUSE -> {
                             if (showAfterAnswerMenu && currentPlayingAnswer != null) {
-                                // 1 tap in after-menu = Repeat
                                 showAfterAnswerMenu = false
                                 currentBlockIndex = 0
                                 isPlaying = true
@@ -177,9 +256,8 @@ class MainActivity : ComponentActivity() {
                                 playCurrentBlock(answers.first(), 0)
                             }
                         }
-                        DeskGesture.DOUBLE_TAP -> {
+                        GestureAction.NEXT_ANSWER -> {
                             if (showAfterAnswerMenu) showAfterAnswerMenu = false
-                            // Next answer
                             if (answers.isNotEmpty()) {
                                 val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
                                 val nextIdx = if (currentIdx != -1) (currentIdx + 1) % answers.size else 0
@@ -189,14 +267,9 @@ class MainActivity : ComponentActivity() {
                                 playCurrentBlock(answers[nextIdx], 0)
                             }
                         }
-                        DeskGesture.TRIPLE_TAP -> {
-                            if (showAfterAnswerMenu) {
-                                // 3 taps in after-menu = explain simpler
-                                showAfterAnswerMenu = false
-                                currentPlayingAnswer?.let { ans ->
-                                    app.ttsManager.speak(ans.simpleExplanation, "simple_explanation")
-                                }
-                            } else if (answers.isNotEmpty()) {
+                        GestureAction.PREV_ANSWER -> {
+                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
+                            if (answers.isNotEmpty()) {
                                 val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
                                 val prevIdx = if (currentIdx > 0) currentIdx - 1 else answers.size - 1
                                 currentPlayingAnswer = answers[prevIdx]
@@ -205,26 +278,77 @@ class MainActivity : ComponentActivity() {
                                 playCurrentBlock(answers[prevIdx], 0)
                             }
                         }
-                        DeskGesture.TAP_PAUSE_TAP -> {
-                            // Repeat from beginning
+                        GestureAction.REPEAT -> {
+                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
                             currentPlayingAnswer?.let { ans ->
                                 currentBlockIndex = 0
                                 isPlaying = true
                                 playCurrentBlock(ans, 0)
                             }
                         }
-                        DeskGesture.LONG_KNOCK -> {
-                            // Short summary
+                        GestureAction.SHORT_SUMMARY -> {
                             currentPlayingAnswer?.let { ans ->
                                 app.ttsManager.speak(ans.shortAnswer, "short_summary")
                             }
                         }
-                        DeskGesture.FOUR_TAPS -> {
-                            // Stop & silent / Wake screen
+                        GestureAction.EXPLAIN_SIMPLER -> {
+                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
+                            currentPlayingAnswer?.let { ans ->
+                                if (ans.simpleExplanation.isNotEmpty() && !ans.simpleExplanation.contains("(Generated on demand)")) {
+                                    app.ttsManager.speak(ans.simpleExplanation, "simple_explanation")
+                                } else {
+                                    // Generate simple explanation on demand
+                                    scope.launch {
+                                        val explanation = app.aiProviderManager.generateSimpleExplanation(
+                                            provider = aiSettings.provider,
+                                            apiKey = aiSettings.apiKey,
+                                            model = aiSettings.model,
+                                            baseUrl = aiSettings.baseUrl,
+                                            questionText = ans.questionText,
+                                            shortAnswer = ans.shortAnswer
+                                        )
+                                        val updated = ans.copy(simpleExplanation = explanation)
+                                        app.database.answerDao().updateAnswer(updated)
+                                        currentPlayingAnswer = updated
+                                        app.ttsManager.speak(explanation, "simple_explanation")
+                                    }
+                                }
+                            }
+                        }
+                        GestureAction.STOP_SILENT -> {
                             app.ttsManager.stop()
                             isPlaying = false
                             showAfterAnswerMenu = false
                             isDeskScreenOffOpen = false
+                        }
+                        GestureAction.JUMP_TO_N -> {
+                            if (answers.isNotEmpty()) {
+                                val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
+                                val jumpIdx = (currentIdx + 5) % answers.size
+                                currentPlayingAnswer = answers[jumpIdx]
+                                currentBlockIndex = 0
+                                isPlaying = true
+                                playCurrentBlock(answers[jumpIdx], 0)
+                            }
+                        }
+                        GestureAction.SPEED_UP -> {
+                            val newRate = (audioSettings.speechRate + 0.25f).coerceAtMost(2.0f)
+                            scope.launch { app.preferencesRepository.setSpeechRate(newRate) }
+                            app.ttsManager.spokenPrompt("Speed ${String.format("%.2f", newRate)}")
+                        }
+                        GestureAction.SPEED_DOWN -> {
+                            val newRate = (audioSettings.speechRate - 0.25f).coerceAtLeast(0.75f)
+                            scope.launch { app.preferencesRepository.setSpeechRate(newRate) }
+                            app.ttsManager.spokenPrompt("Speed ${String.format("%.2f", newRate)}")
+                        }
+                        GestureAction.START_END_SESSION -> {
+                            isSessionActive = !isSessionActive
+                        }
+                        GestureAction.GESTURE_HELP -> {
+                            val summary = gestureSettings.customMappings.entries.joinToString(". ") {
+                                "${it.key.replace('_', ' ')}: ${it.value.replace('_', ' ')}"
+                            }
+                            app.ttsManager.speak("Gesture controls: $summary", "gesture_help")
                         }
                         else -> {}
                     }
@@ -241,10 +365,50 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = appColors.background
                 ) {
-                    if (isDeskScreenOffOpen) {
+                    if (showFirstRunWizard) {
+                        FirstRunWizard(
+                            app = app,
+                            onComplete = { showFirstRunWizard = false }
+                        )
+                    } else if (isDeskScreenOffOpen) {
                         DeskScreenOffScreen(
                             currentAnswerSummary = currentPlayingAnswer?.let { "#${it.id} ${it.subject}" },
                             onWake = { isDeskScreenOffOpen = false }
+                        )
+                    } else if (activeTab == "tap_controls") {
+                        TapControlsScreen(
+                            app = app,
+                            gestureSettings = gestureSettings,
+                            onBack = { activeTab = "settings" }
+                        )
+                    } else if (activeTab == "usage") {
+                        UsageScreen(
+                            app = app,
+                            budgetSettings = budgetSettings,
+                            cheapMode = aiSettings.cheapMode,
+                            onToggleCheapMode = { isCheap ->
+                                scope.launch {
+                                    val bestModel = if (isCheap) {
+                                        val fallback = app.aiProviderManager.getDefaultFallbackModels(aiSettings.provider)
+                                        fallback.firstOrNull { it.isFree }?.id ?: fallback.first().id
+                                    } else {
+                                        aiSettings.model
+                                    }
+                                    app.preferencesRepository.saveAiConfig(
+                                        aiSettings.provider,
+                                        aiSettings.apiKey,
+                                        bestModel,
+                                        aiSettings.baseUrl,
+                                        cheapMode = isCheap
+                                    )
+                                }
+                            },
+                            onBack = { activeTab = "settings" }
+                        )
+                    } else if (activeTab == "diagnostics") {
+                        HealthCheckScreen(
+                            app = app,
+                            onBack = { activeTab = "settings" }
                         )
                     } else {
                         Scaffold(
@@ -308,9 +472,15 @@ class MainActivity : ComponentActivity() {
                                 when (activeTab) {
                                     "capture" -> {
                                         CaptureScreen(
+                                            app = app,
                                             onAnswerGenerated = { newAns ->
                                                 scope.launch {
-                                                    val id = app.database.answerDao().insertAnswer(newAns)
+                                                    val id = if (newAns.id > 0) {
+                                                        app.database.answerDao().updateAnswer(newAns)
+                                                        newAns.id
+                                                    } else {
+                                                        app.database.answerDao().insertAnswer(newAns)
+                                                    }
                                                     val saved = newAns.copy(id = id)
                                                     currentPlayingAnswer = saved
                                                     currentBlockIndex = 0
@@ -374,6 +544,53 @@ class MainActivity : ComponentActivity() {
                                                     scope.launch {
                                                         app.database.answerDao().deleteAnswer(ans)
                                                     }
+                                                },
+                                                onRestoreAnswer = { ans ->
+                                                    scope.launch {
+                                                        app.database.answerDao().insertAnswer(ans)
+                                                    }
+                                                },
+                                                onRetryAnswer = { failedAns ->
+                                                    scope.launch {
+                                                        val res = app.aiProviderManager.generateAnswer(
+                                                            provider = aiSettings.provider,
+                                                            apiKey = aiSettings.apiKey,
+                                                            model = aiSettings.model,
+                                                            baseUrl = aiSettings.baseUrl,
+                                                            request = AnswerRequest(
+                                                                imagesBase64 = failedAns.imagePaths,
+                                                                promptNote = failedAns.questionText,
+                                                                conciseMode = aiSettings.conciseMode,
+                                                                lazyExplanation = aiSettings.lazyExplanation
+                                                            )
+                                                        )
+                                                        val retried = failedAns.copy(
+                                                            subject = res.subject,
+                                                            questionText = res.questionText,
+                                                            shortAnswer = res.shortAnswer,
+                                                            blocks = res.blocks,
+                                                            simpleExplanation = res.simpleExplanation,
+                                                            status = "completed",
+                                                            errorMessage = null
+                                                        )
+                                                        app.database.answerDao().updateAnswer(retried)
+                                                    }
+                                                },
+                                                onGenerateSimpleExplanation = { ans ->
+                                                    scope.launch {
+                                                        val exp = app.aiProviderManager.generateSimpleExplanation(
+                                                            provider = aiSettings.provider,
+                                                            apiKey = aiSettings.apiKey,
+                                                            model = aiSettings.model,
+                                                            baseUrl = aiSettings.baseUrl,
+                                                            questionText = ans.questionText,
+                                                            shortAnswer = ans.shortAnswer
+                                                        )
+                                                        val updated = ans.copy(simpleExplanation = exp)
+                                                        app.database.answerDao().updateAnswer(updated)
+                                                        currentPlayingAnswer = updated
+                                                        app.ttsManager.speak(exp, "simple_explanation")
+                                                    }
                                                 }
                                             )
                                         }
@@ -384,33 +601,57 @@ class MainActivity : ComponentActivity() {
                                             isSessionActive = isSessionActive,
                                             sessionDurationSeconds = sessionDurationSeconds,
                                             answersHeardCount = answersHeardCount,
+                                            sensorManager = app.deskTapSensor,
+                                            sensitivity = gestureSettings.sensitivity,
+                                            onSensitivityChange = { sens ->
+                                                scope.launch {
+                                                    app.preferencesRepository.setGestureSensitivity(sens)
+                                                    app.deskTapSensor.setSensitivity(sens)
+                                                }
+                                            },
                                             onToggleSession = { isSessionActive = !isSessionActive }
                                         )
                                     }
                                     "settings" -> {
                                         SettingsScreen(
+                                            app = app,
                                             themeSettings = themeSettings,
                                             aiSettings = aiSettings,
+                                            budgetSettings = budgetSettings,
                                             audioSettings = audioSettings,
                                             gestureSettings = gestureSettings,
-                                            ttsManager = app.ttsManager,
-                                            aiManager = app.aiProviderManager,
+                                            onOpenTapControls = { activeTab = "tap_controls" },
+                                            onOpenUsageScreen = { activeTab = "usage" },
+                                            onOpenDiagnostics = { activeTab = "diagnostics" },
                                             onSaveUltraDim = { isUltraDim ->
                                                 scope.launch {
                                                     app.preferencesRepository.setUltraDimMode(isUltraDim)
                                                 }
                                             },
-                                            onSaveAi = { provider, key, model, baseUrl ->
+                                            onSaveAi = { provider, key, model, baseUrl, fbProvider, fbKey, fbModel, concise, lazyExp, cheap ->
                                                 scope.launch {
-                                                    app.preferencesRepository.saveAiConfig(provider, key, model, baseUrl)
+                                                    app.preferencesRepository.saveAiConfig(
+                                                        provider = provider,
+                                                        apiKey = key,
+                                                        model = model,
+                                                        baseUrl = baseUrl,
+                                                        fallbackProvider = fbProvider,
+                                                        fallbackApiKey = fbKey,
+                                                        fallbackModel = fbModel,
+                                                        conciseMode = concise,
+                                                        lazyExplanation = lazyExp,
+                                                        cheapMode = cheap
+                                                    )
                                                 }
                                             },
-                                            onSaveAudio = { rate, slowdown, spokenMenu, silentMode ->
+                                            onSaveAudio = { rate, slowdown, spokenMenu, silentMode, testMode, spokenPrompts ->
                                                 scope.launch {
                                                     app.preferencesRepository.setSpeechRate(rate)
                                                     app.preferencesRepository.setMathSlowdown(slowdown)
                                                     app.preferencesRepository.setSpokenMenu(spokenMenu)
                                                     app.preferencesRepository.setSilentTextMode(silentMode)
+                                                    app.preferencesRepository.setTestModeEnabled(testMode)
+                                                    app.preferencesRepository.setSpokenPrompts(spokenPrompts)
                                                 }
                                             },
                                             onSaveGesture = { sens ->
@@ -451,6 +692,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        batteryReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (_: Exception) {}
+        }
         super.onDestroy()
     }
 }
