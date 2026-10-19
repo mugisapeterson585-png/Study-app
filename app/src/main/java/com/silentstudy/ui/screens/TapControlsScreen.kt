@@ -442,7 +442,7 @@ fun TapControlsScreen(
             AlertDialog(
                 onDismissRequest = { selectedActionForEdit = null },
                 containerColor = colors.surface,
-                titleColor = colors.textPrimary,
+                titleContentColor = colors.textPrimary,
                 textContentColor = colors.textSecondary,
                 title = { Text("Assign Gesture to ${action.displayName}", fontSize = 14.sp) },
                 text = {
