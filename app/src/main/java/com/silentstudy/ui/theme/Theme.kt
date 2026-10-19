@@ -15,9 +15,7 @@ data class AppThemeColors(
     val accent: Color,
     val error: Color,
     val textPrimary: Color,
-    val textSecondary: Color,
-    val lightShadow: Color = border,
-    val darkShadow: Color = background
+    val textSecondary: Color
 )
 
 val LocalAppColors = staticCompositionLocalOf {
@@ -32,10 +30,6 @@ val LocalAppColors = staticCompositionLocalOf {
         textSecondary = AppDarkTextSecondary
     )
 }
-
-// Backward compatibility alias for LocalNeuColors
-val LocalNeuColors = LocalAppColors
-typealias NeuColors = AppThemeColors
 
 @Composable
 fun SilentStudyTheme(
@@ -72,21 +66,35 @@ fun SilentStudyTheme(
         onPrimary = appColors.background,
         primaryContainer = appColors.control,
         onPrimaryContainer = appColors.textPrimary,
+        inversePrimary = appColors.accent,
+        secondary = appColors.accent,
+        onSecondary = appColors.background,
+        secondaryContainer = appColors.control,
+        onSecondaryContainer = appColors.textPrimary,
+        tertiary = appColors.accent,
+        onTertiary = appColors.background,
+        tertiaryContainer = appColors.control,
+        onTertiaryContainer = appColors.textPrimary,
         background = appColors.background,
         onBackground = appColors.textPrimary,
         surface = appColors.surface,
         onSurface = appColors.textPrimary,
         surfaceVariant = appColors.control,
         onSurfaceVariant = appColors.textSecondary,
+        surfaceTint = appColors.accent,
+        inverseSurface = appColors.surface,
+        inverseOnSurface = appColors.textPrimary,
         outline = appColors.border,
         outlineVariant = appColors.border,
         error = appColors.error,
-        onError = appColors.background
+        onError = appColors.background,
+        errorContainer = appColors.control,
+        onErrorContainer = appColors.error,
+        scrim = appColors.background
     )
 
     CompositionLocalProvider(
-        LocalAppColors provides appColors,
-        LocalNeuColors provides appColors
+        LocalAppColors provides appColors
     ) {
         MaterialTheme(
             colorScheme = materialColors,

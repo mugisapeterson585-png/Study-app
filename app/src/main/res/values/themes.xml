@@ -3,7 +3,9 @@
     <style name="Theme.SilentStudy" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">#121418</item>
         <item name="android:navigationBarColor">#121418</item>
-        <item name="android:windowBackground">@color/app_dark_bg</item>
+        <item name="android:windowBackground">#121418</item>
+        <item name="android:colorBackground">#121418</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

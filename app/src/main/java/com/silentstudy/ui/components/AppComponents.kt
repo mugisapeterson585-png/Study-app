@@ -22,8 +22,8 @@ import androidx.compose.ui.unit.sp
 import com.silentstudy.ui.theme.LocalAppColors
 
 /**
- * Flat Dark Low-Glare UI Components (Zero Neumorphism, Zero White)
- * Uses solid dark surfaces with subtle 1dp borders (#2E333D) and clean Material design.
+ * Flat Dark Low-Glare UI Components (Zero Glare, Zero White)
+ * Solid dark surfaces with subtle 1dp borders (#2E333D) and clean Material design.
  */
 
 @Composable
@@ -81,6 +81,28 @@ fun AppButton(
             verticalAlignment = Alignment.CenterVertically,
             content = content
         )
+    }
+}
+
+@Composable
+fun AppIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isAccent: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    val colors = LocalAppColors.current
+    Box(
+        modifier = modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(if (isAccent) colors.accent.copy(alpha = 0.25f) else colors.control)
+            .border(1.dp, if (isAccent) colors.accent.copy(alpha = 0.6f) else colors.border, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
     }
 }
 
@@ -200,7 +222,8 @@ fun AppTextField(
                 focusedTextColor = colors.textPrimary,
                 unfocusedTextColor = colors.textPrimary,
                 focusedBorderColor = colors.accent,
-                unfocusedBorderColor = colors.border
+                unfocusedBorderColor = colors.border,
+                cursorColor = colors.accent
             ),
             modifier = Modifier.fillMaxWidth()
         )
@@ -315,43 +338,3 @@ fun AfterAnswerMenu(
         }
     }
 }
-
-@Composable
-fun AppIconButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    isAccent: Boolean = false,
-    content: @Composable () -> Unit
-) {
-    val colors = LocalAppColors.current
-    Box(
-        modifier = modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(if (isAccent) colors.accent.copy(alpha = 0.25f) else colors.control)
-            .border(1.dp, if (isAccent) colors.accent.copy(alpha = 0.6f) else colors.border, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        content()
-    }
-}
-
-// Flat low-glare modifier replacement for legacy neumorphic calls (zero shadows)
-fun Modifier.neumorphic(
-    isPressed: Boolean = false,
-    cornerRadius: Dp = 16.dp,
-    elevation: Dp = 0.dp,
-    lightShadowColor: Color? = null,
-    darkShadowColor: Color? = null
-): Modifier = this
-
-// Backward compatibility aliases
-typealias NeuCard = AppCard
-typealias NeuButton = AppButton
-typealias NeuIconButton = AppIconButton
-typealias NeuToggle = AppToggle
-typealias NeuSlider = AppSlider
-typealias NeuTextField = AppTextField
-

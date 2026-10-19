@@ -319,7 +319,7 @@ fun SettingsScreen(
             }
 
             "appearance" -> {
-                // Flat Dark Low-Glare Theme (Zero Neumorphism, Zero White)
+                // Flat Dark Low-Glare Theme (Zero Glare, Zero White)
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Appearance & Low-Glare Design",
