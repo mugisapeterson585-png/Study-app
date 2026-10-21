@@ -4,6 +4,7 @@ import android.app.Application
 import com.silentstudy.ai.AiProviderManager
 import com.silentstudy.audio.EarbudsAudioGuard
 import com.silentstudy.audio.SilentStudyTtsManager
+import com.silentstudy.controller.PlaybackController
 import com.silentstudy.data.local.AppDatabase
 import com.silentstudy.data.repository.PreferencesRepository
 import com.silentstudy.gestures.DeskTapSensorManager
@@ -28,6 +29,9 @@ class SilentStudyApp : Application() {
     lateinit var aiProviderManager: AiProviderManager
         private set
 
+    lateinit var playbackController: PlaybackController
+        private set
+
     override fun onCreate() {
         super.onCreate()
         database = AppDatabase.getDatabase(this)
@@ -36,9 +40,12 @@ class SilentStudyApp : Application() {
         ttsManager = SilentStudyTtsManager(this, earbudsGuard)
         deskTapSensor = DeskTapSensorManager(this)
         aiProviderManager = AiProviderManager()
+        playbackController = PlaybackController(this)
     }
 
     override fun onTerminate() {
+        playbackController.stop()
+        deskTapSensor.stopListening()
         earbudsGuard.unregister()
         ttsManager.shutdown()
         super.onTerminate()

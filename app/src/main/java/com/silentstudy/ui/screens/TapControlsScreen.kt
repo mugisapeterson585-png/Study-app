@@ -23,9 +23,7 @@ import com.silentstudy.SilentStudyApp
 import com.silentstudy.data.repository.GestureSettings
 import com.silentstudy.gestures.DeskGesture
 import com.silentstudy.gestures.GestureAction
-import com.silentstudy.ui.components.AppButton
-import com.silentstudy.ui.components.AppCard
-import com.silentstudy.ui.components.AppSlider
+import com.silentstudy.ui.components.*
 import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -39,14 +37,17 @@ fun TapControlsScreen(
     val colors = LocalAppColors.current
     val scope = rememberCoroutineScope()
 
-    var activeSubTab by remember { mutableStateOf("actions") } // actions, timing, practice
+    var activeSubTab by remember { mutableStateOf("actions") } // actions, calibration, timing, practice
     var selectedActionForEdit by remember { mutableStateOf<GestureAction?>(null) }
     var isRecordingGestureFor by remember { mutableStateOf<GestureAction?>(null) }
 
+    val lastGestureText by app.playbackController.lastGestureText.collectAsState()
+    val calibrationState by app.deskTapSensor.calibrationState.collectAsState()
+
     // Timing state
     var tapWindow by remember { mutableStateOf(gestureSettings.tapWindowMs) }
-    var longKnockDuration by remember { mutableStateOf(gestureSettings.longKnockDurationMs) }
     var minTapGap by remember { mutableStateOf(gestureSettings.minTapGapMs) }
+    var ignoreTouches by remember { mutableStateOf(gestureSettings.ignorePhoneTouches) }
 
     // Practice mode state
     var practiceTargetGesture by remember { mutableStateOf(DeskGesture.DOUBLE_TAP) }
@@ -115,26 +116,63 @@ fun TapControlsScreen(
                         color = colors.textPrimary
                     )
                     Text(
-                        text = "Customize physical desk knock mappings",
+                        text = "Desk jerk tap detection & remappable actions",
                         fontSize = 11.sp,
                         color = colors.textSecondary
                     )
                 }
                 AppButton(onClick = onBack) {
-                    Text("Done", fontSize = 11.sp, color = colors.accent)
+                    Icon(Icons.Default.ArrowBack, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Back", fontSize = 11.sp, color = colors.textPrimary)
                 }
             }
         }
 
-        // Subtabs: Actions, Timing, Practice
+        // Prominent Last Gesture feedback line
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.accent.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Hearing,
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "LAST GESTURE:",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textSecondary,
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = lastGestureText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.accent
+                )
+            }
+        }
+
+        // Sub-tabs
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf(
-                "actions" to "Actions & Map",
-                "timing" to "Timing",
-                "practice" to "Practice Mode"
+                "actions" to "Actions",
+                "calibration" to "Calibrate",
+                "timing" to "Settings",
+                "practice" to "Practice"
             ).forEach { (id, label) ->
                 val isSel = activeSubTab == id
                 AppButton(
@@ -142,99 +180,74 @@ fun TapControlsScreen(
                     modifier = Modifier.weight(1f),
                     isAccent = isSel
                 ) {
-                    Text(label, fontSize = 11.sp, color = if (isSel) colors.accent else colors.textPrimary)
+                    Text(
+                        text = label,
+                        fontSize = 11.sp,
+                        color = if (isSel) colors.accent else colors.textPrimary
+                    )
                 }
             }
         }
 
         when (activeSubTab) {
             "actions" -> {
-                // Presets & Gesture Help Audio Bar
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Text("Presets & Audio Guide", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.accent)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        AppButton(
-                            onClick = { scope.launch { app.preferencesRepository.applyPreset("default") } },
-                            modifier = Modifier.weight(1f),
-                            isAccent = gestureSettings.preset == "default"
-                        ) {
-                            Text("Default", fontSize = 10.sp, color = colors.textPrimary)
-                        }
-                        AppButton(
-                            onClick = { scope.launch { app.preferencesRepository.applyPreset("minimal") } },
-                            modifier = Modifier.weight(1f),
-                            isAccent = gestureSettings.preset == "minimal"
-                        ) {
-                            Text("Minimal", fontSize = 10.sp, color = colors.textPrimary)
-                        }
-                        AppButton(
-                            onClick = { scope.launch { app.preferencesRepository.applyPreset("one_handed") } },
-                            modifier = Modifier.weight(1f),
-                            isAccent = gestureSettings.preset == "one_handed"
-                        ) {
-                            Text("One-Hand", fontSize = 10.sp, color = colors.textPrimary)
-                        }
-                        AppButton(
-                            onClick = { scope.launch { app.preferencesRepository.resetGestureDefaults() } },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Reset", fontSize = 10.sp, color = colors.textSecondary)
+                // Preset & Conflict Banner
+                if (conflicts.isNotEmpty()) {
+                    AppCard(modifier = Modifier.fillMaxWidth(), borderColor = colors.error) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = colors.error, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Conflict: ${conflicts.keys.joinToString()} mapped to multiple actions.",
+                                fontSize = 11.sp,
+                                color = colors.error
+                            )
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                // Preset selector buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     AppButton(
-                        onClick = {
-                            val mapSummary = gestureSettings.customMappings.entries.joinToString(". ") {
-                                "${it.key.replace('_', ' ')} triggers ${it.value.replace('_', ' ')}"
-                            }
-                            app.ttsManager.speak("Current gesture controls: $mapSummary", "gesture_help_audio")
-                        },
-                        modifier = Modifier.fillMaxWidth()
+                        onClick = { scope.launch { app.preferencesRepository.applyPreset("default") } },
+                        modifier = Modifier.weight(1f),
+                        isAccent = gestureSettings.preset == "default"
                     ) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = colors.accent, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Read Gesture Map Through Earbuds", fontSize = 11.sp, color = colors.textPrimary)
+                        Text("Default", fontSize = 10.sp, color = colors.textPrimary)
+                    }
+                    AppButton(
+                        onClick = { scope.launch { app.preferencesRepository.applyPreset("minimal") } },
+                        modifier = Modifier.weight(1f),
+                        isAccent = gestureSettings.preset == "minimal"
+                    ) {
+                        Text("Minimal (4)", fontSize = 10.sp, color = colors.textPrimary)
+                    }
+                    AppButton(
+                        onClick = { scope.launch { app.preferencesRepository.applyPreset("one_handed") } },
+                        modifier = Modifier.weight(1f),
+                        isAccent = gestureSettings.preset == "one_handed"
+                    ) {
+                        Text("One-Handed", fontSize = 10.sp, color = colors.textPrimary)
                     }
                 }
 
-                // Recording Modal / Banner
-                if (isRecordingGestureFor != null) {
-                    AppCard(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "RECORDING GESTURE FOR: ${isRecordingGestureFor!!.displayName}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.accent
-                                )
-                                Text(
-                                    text = "Knock your desired pattern on the desk now (taps, pauses, long knock)...",
-                                    fontSize = 10.sp,
-                                    color = colors.textSecondary
-                                )
-                            }
-                            AppButton(onClick = { isRecordingGestureFor = null }) {
-                                Text("Cancel", fontSize = 10.sp, color = colors.error)
-                            }
-                        }
-                    }
-                }
-
-                // Actions List
+                // Mapping list
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(GestureAction.values(), key = { it.name }) { action ->
-                        // Find assigned gesture(s) for this action
-                        val assignedGestures = gestureSettings.customMappings.filter { it.value == action.name }.keys
+                    items(GestureAction.values()) { action ->
+                        // Find which gesture is mapped to this action
+                        val mappedGestureStr = gestureSettings.customMappings.entries
+                            .firstOrNull { it.value == action.name }?.key
+                        val mappedGesture = mappedGestureStr?.let {
+                            try { DeskGesture.valueOf(it) } catch (_: Exception) { null }
+                        }
 
                         AppCard(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -245,7 +258,7 @@ fun TapControlsScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = action.displayName,
-                                        fontSize = 12.sp,
+                                        fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.textPrimary
                                     )
@@ -254,52 +267,30 @@ fun TapControlsScreen(
                                         fontSize = 10.sp,
                                         color = colors.textSecondary
                                     )
-
-                                    if (assignedGestures.isNotEmpty()) {
-                                        Row(
-                                            modifier = Modifier.padding(top = 4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            assignedGestures.forEach { gName ->
-                                                val hasConflict = conflicts.containsKey(gName)
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(if (hasConflict) colors.error.copy(alpha = 0.2f) else colors.accent.copy(alpha = 0.2f))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (hasConflict) "$gName (Conflict!)" else gName.replace('_', ' '),
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = if (hasConflict) colors.error else colors.accent
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        Text(
-                                            text = "Unassigned",
-                                            fontSize = 9.sp,
-                                            color = colors.textSecondary,
-                                            modifier = Modifier.padding(top = 4.dp)
-                                        )
-                                    }
                                 }
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     AppButton(
-                                        onClick = { isRecordingGestureFor = action },
-                                        isAccent = true
+                                        onClick = { selectedActionForEdit = action },
+                                        isAccent = mappedGesture != null
                                     ) {
-                                        Icon(Icons.Default.Mic, contentDescription = null, tint = colors.accent, modifier = Modifier.size(12.dp))
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text("Record", fontSize = 10.sp, color = colors.accent)
+                                        Text(
+                                            text = mappedGesture?.label ?: "Unassigned",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (mappedGesture != null) colors.accent else colors.textSecondary
+                                        )
                                     }
+
                                     AppButton(
-                                        onClick = { selectedActionForEdit = action }
+                                        onClick = { isRecordingGestureFor = action }
                                     ) {
-                                        Text("Pick", fontSize = 10.sp, color = colors.textPrimary)
+                                        Icon(
+                                            imageVector = Icons.Default.Hearing,
+                                            contentDescription = "Knock to assign",
+                                            tint = if (isRecordingGestureFor == action) colors.accent else colors.textSecondary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
                                     }
                                 }
                             }
@@ -308,11 +299,86 @@ fun TapControlsScreen(
                 }
             }
 
-            "timing" -> {
-                // Timing Sliders
+            "calibration" -> {
+                // 5-Tap Calibration Routine
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Adjustable Sensor Timing",
+                        text = "5-Tap Desk Calibration",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.accent
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Tap the desk 5 times, softly, the way you will use it. We record peak jerk values and tune your threshold.",
+                        fontSize = 11.sp,
+                        color = colors.textSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AppButton(
+                            onClick = {
+                                if (calibrationState.inProgress) {
+                                    app.deskTapSensor.cancelCalibration()
+                                } else {
+                                    app.deskTapSensor.start5TapCalibration()
+                                }
+                            },
+                            isAccent = !calibrationState.inProgress
+                        ) {
+                            Icon(Icons.Default.Speed, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (calibrationState.inProgress) "Cancel (${calibrationState.tapCount}/5 recorded)" else "Start 5-Tap Calibration",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary
+                            )
+                        }
+
+                        if (calibrationState.isComplete) {
+                            Text(
+                                text = "Tuned: ${String.format("%.2f", calibrationState.computedThreshold)} m/s²",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.accent
+                            )
+                        }
+                    }
+
+                    if (calibrationState.recordedPeaks.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Recorded peaks: " + calibrationState.recordedPeaks.joinToString(", ") { String.format("%.2f", it) },
+                            fontSize = 10.sp,
+                            color = colors.textSecondary,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+
+                // Live Jerk Waves Box
+                DeskKnockPad(
+                    sensorManager = app.deskTapSensor,
+                    sensitivity = gestureSettings.sensitivity,
+                    onSensitivityChange = { sens ->
+                        scope.launch {
+                            app.preferencesRepository.setGestureSensitivity(sens)
+                            app.deskTapSensor.setSensitivity(sens)
+                        }
+                    }
+                )
+            }
+
+            "timing" -> {
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Cadence & Rejection Settings",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.accent
@@ -328,44 +394,61 @@ fun TapControlsScreen(
                         value = tapWindow.toFloat(),
                         onValueChange = {
                             tapWindow = it.toLong()
-                            app.deskTapSensor.updateTimingParams(tapWindow, longKnockDuration, minTapGap)
-                            scope.launch { app.preferencesRepository.saveGestureTiming(tapWindow, longKnockDuration, minTapGap) }
+                            app.deskTapSensor.updateTimingParams(tapWindow, minTapGap)
+                            scope.launch { app.preferencesRepository.saveGestureTiming(tapWindow, minTapGap) }
                         },
                         valueRange = 400f..1200f,
                         label = "Tap Window (Grouping Interval)",
                         valueDisplay = "${tapWindow}ms"
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    AppSlider(
-                        value = longKnockDuration.toFloat(),
-                        onValueChange = {
-                            longKnockDuration = it.toLong()
-                            app.deskTapSensor.updateTimingParams(tapWindow, longKnockDuration, minTapGap)
-                            scope.launch { app.preferencesRepository.saveGestureTiming(tapWindow, longKnockDuration, minTapGap) }
-                        },
-                        valueRange = 500f..1500f,
-                        label = "Long Knock Duration",
-                        valueDisplay = "${longKnockDuration}ms"
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     AppSlider(
                         value = minTapGap.toFloat(),
                         onValueChange = {
                             minTapGap = it.toLong()
-                            app.deskTapSensor.updateTimingParams(tapWindow, longKnockDuration, minTapGap)
-                            scope.launch { app.preferencesRepository.saveGestureTiming(tapWindow, longKnockDuration, minTapGap) }
+                            app.deskTapSensor.updateTimingParams(tapWindow, minTapGap)
+                            scope.launch { app.preferencesRepository.saveGestureTiming(tapWindow, minTapGap) }
                         },
-                        valueRange = 40f..150f,
+                        valueRange = 50f..150f,
                         label = "Minimum Tap Gap (Debounce)",
                         valueDisplay = "${minTapGap}ms"
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Ignore phone touches toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Ignore touches on the phone itself",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = "Ignores sensor spikes within 200ms of touching screen, so only desk taps count",
+                                fontSize = 10.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                        AppToggle(
+                            checked = ignoreTouches,
+                            onCheckedChange = { chk ->
+                                ignoreTouches = chk
+                                app.deskTapSensor.ignorePhoneTouches = chk
+                                scope.launch { app.preferencesRepository.setIgnorePhoneTouches(chk) }
+                            }
+                        )
+                    }
                 }
             }
 
             "practice" -> {
-                // Practice Mode
                 AppCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = "Interactive Practice Mode",
@@ -374,7 +457,7 @@ fun TapControlsScreen(
                         color = colors.accent
                     )
                     Text(
-                        text = "The app tells you what gesture to knock, then validates whether the desk sensor recognized it.",
+                        text = "Practice knocking on the desk to verify recognition of each gesture.",
                         fontSize = 11.sp,
                         color = colors.textSecondary,
                         modifier = Modifier.padding(top = 2.dp, bottom = 14.dp)
@@ -388,7 +471,7 @@ fun TapControlsScreen(
                             DeskGesture.SINGLE_TAP,
                             DeskGesture.DOUBLE_TAP,
                             DeskGesture.TRIPLE_TAP,
-                            DeskGesture.LONG_KNOCK
+                            DeskGesture.TAP_PAUSE_TAP
                         ).forEach { g ->
                             val isSel = practiceTargetGesture == g
                             AppButton(
@@ -400,7 +483,7 @@ fun TapControlsScreen(
                                 modifier = Modifier.weight(1f),
                                 isAccent = isSel
                             ) {
-                                Text(g.label, fontSize = 10.sp, color = if (isSel) colors.accent else colors.textPrimary)
+                                Text(g.label, fontSize = 9.sp, color = if (isSel) colors.accent else colors.textPrimary)
                             }
                         }
                     }
@@ -409,29 +492,30 @@ fun TapControlsScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.control)
+                            .border(
+                                1.dp,
                                 when (practiceSuccess) {
-                                    true -> colors.accent.copy(alpha = 0.2f)
-                                    false -> colors.error.copy(alpha = 0.2f)
-                                    else -> colors.control
-                                }
+                                    true -> colors.accent
+                                    false -> colors.error
+                                    else -> colors.border
+                                },
+                                RoundedCornerShape(10.dp)
                             )
                             .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = practiceFeedback ?: "Ready",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = when (practiceSuccess) {
-                                    true -> colors.accent
-                                    false -> colors.error
-                                    else -> colors.textPrimary
-                                }
-                            )
-                        }
+                        Text(
+                            text = practiceFeedback ?: "Ready",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when (practiceSuccess) {
+                                true -> colors.accent
+                                false -> colors.error
+                                else -> colors.textPrimary
+                            }
+                        )
                     }
                 }
             }

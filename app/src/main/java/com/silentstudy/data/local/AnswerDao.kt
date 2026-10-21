@@ -14,6 +14,9 @@ interface AnswerDao {
     @Query("SELECT * FROM answers ORDER BY id DESC")
     fun getAllAnswers(): Flow<List<Answer>>
 
+    @Query("SELECT * FROM answers ORDER BY id DESC")
+    suspend fun getAllAnswersSync(): List<Answer>
+
     @Query("SELECT * FROM answers WHERE id = :id LIMIT 1")
     suspend fun getAnswerById(id: Long): Answer?
 

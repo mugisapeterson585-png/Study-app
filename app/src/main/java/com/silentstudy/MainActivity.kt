@@ -48,6 +48,11 @@ class MainActivity : ComponentActivity() {
 
     private var batteryReceiver: BroadcastReceiver? = null
 
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent?): Boolean {
+        (application as? SilentStudyApp)?.deskTapSensor?.notifyScreenTouched()
+        return super.dispatchTouchEvent(ev)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -88,17 +93,18 @@ class MainActivity : ComponentActivity() {
             var isDeskScreenOffOpen by remember { mutableStateOf(false) }
             var showFirstRunWizard by remember { mutableStateOf(false) }
 
-            // Audio playback sequence state
-            var currentPlayingAnswer by remember { mutableStateOf<Answer?>(null) }
-            var currentBlockIndex by remember { mutableStateOf(0) }
-            var isPlaying by remember { mutableStateOf(false) }
-            var showAfterAnswerMenu by remember { mutableStateOf(false) }
-            var afterMenuSeconds by remember { mutableStateOf(5) }
+            // Authoritative audio playback and gesture state from PlaybackController singleton
+            val currentPlayingAnswer by app.playbackController.currentPlayingAnswer.collectAsState()
+            val currentPartIndex by app.playbackController.currentPartIndex.collectAsState()
+            val isPlaying by app.playbackController.isPlaying.collectAsState()
+            val showAfterAnswerMenu by app.playbackController.showAfterAnswerMenu.collectAsState()
+            val afterMenuSeconds by app.playbackController.afterMenuSeconds.collectAsState()
+            val answersHeardCount by app.playbackController.answersHeardCount.collectAsState()
+            val lastGestureText by app.playbackController.lastGestureText.collectAsState()
 
             // Study session stats
             var isSessionActive by remember { mutableStateOf(false) }
             var sessionDurationSeconds by remember { mutableStateOf(0L) }
-            var answersHeardCount by remember { mutableStateOf(0) }
 
             // First run check
             LaunchedEffect(firstRunCompleted) {
@@ -109,14 +115,7 @@ class MainActivity : ComponentActivity() {
 
             // Restore interrupted playback on launch
             LaunchedEffect(Unit) {
-                val lastPos = app.preferencesRepository.lastPlaybackPosition.first()
-                if (lastPos.first > 0) {
-                    val saved = app.database.answerDao().getAnswerById(lastPos.first)
-                    if (saved != null) {
-                        currentPlayingAnswer = saved
-                        currentBlockIndex = lastPos.second.coerceAtMost((saved.blocks.size - 1).coerceAtLeast(0))
-                    }
-                }
+                app.playbackController.restoreInterruptedPlayback()
             }
 
             // Low Battery Guard
@@ -160,198 +159,6 @@ class MainActivity : ComponentActivity() {
                     }
                 } else {
                     SilentStudyService.stopService(this@MainActivity)
-                }
-            }
-
-            // Sequential audio block playback
-            val playCurrentBlock: (Answer, Int) -> Unit = { answer, index ->
-                val block = answer.blocks.getOrNull(index)
-                if (block != null) {
-                    val isMath = block.type == "math" || block.type == "step"
-                    val rate = if (audioSettings.mathSlowdown && isMath) {
-                        audioSettings.mathSlowdownRate
-                    } else {
-                        audioSettings.speechRate
-                    }
-                    val speechText = if (block.type == "step" && block.stepNumber != null) {
-                        "Step ${block.stepNumber}. ${block.spoken}"
-                    } else {
-                        block.spoken
-                    }
-                    app.ttsManager.speak(speechText, "block_$index", speechRate = rate)
-
-                    // Persist current position for crash recovery
-                    scope.launch {
-                        app.preferencesRepository.saveLastPlaybackPosition(answer.id, index)
-                    }
-                } else {
-                    // Finished all blocks -> Trigger After-Answer Menu
-                    isPlaying = false
-                    showAfterAnswerMenu = true
-                    answersHeardCount += 1
-                    if (audioSettings.spokenMenuEnabled) {
-                        app.ttsManager.speak("Tap once to repeat. Tap twice for next answer.", "after_menu")
-                    }
-                }
-            }
-
-            // Utterance completion progression
-            DisposableEffect(Unit) {
-                app.ttsManager.onUtteranceFinished = { utteranceId ->
-                    if (utteranceId.startsWith("block_")) {
-                        scope.launch {
-                            delay(400) // Pause between steps/equations
-                            val nextIndex = currentBlockIndex + 1
-                            currentBlockIndex = nextIndex
-                            currentPlayingAnswer?.let { ans ->
-                                playCurrentBlock(ans, nextIndex)
-                            }
-                        }
-                    }
-                }
-                onDispose {
-                    app.ttsManager.onUtteranceFinished = null
-                }
-            }
-
-            // 5-second countdown for after-answer menu
-            LaunchedEffect(showAfterAnswerMenu) {
-                if (showAfterAnswerMenu) {
-                    afterMenuSeconds = 5
-                    while (afterMenuSeconds > 0) {
-                        delay(1000)
-                        afterMenuSeconds -= 1
-                    }
-                    showAfterAnswerMenu = false
-                }
-            }
-
-            // Global Customizable Desk Gesture Handler (Section 4)
-            LaunchedEffect(gestureSettings.customMappings, showAfterAnswerMenu, isPlaying, answers, currentPlayingAnswer) {
-                app.deskTapSensor.gestures.collectLatest { gesture ->
-                    val actionName = gestureSettings.customMappings[gesture.name] ?: GestureAction.PLAY_PAUSE.name
-                    val action = try {
-                        GestureAction.valueOf(actionName)
-                    } catch (_: Exception) {
-                        GestureAction.PLAY_PAUSE
-                    }
-
-                    when (action) {
-                        GestureAction.PLAY_PAUSE -> {
-                            if (showAfterAnswerMenu && currentPlayingAnswer != null) {
-                                showAfterAnswerMenu = false
-                                currentBlockIndex = 0
-                                isPlaying = true
-                                playCurrentBlock(currentPlayingAnswer!!, 0)
-                            } else if (isPlaying) {
-                                app.ttsManager.stop()
-                                isPlaying = false
-                            } else if (currentPlayingAnswer != null) {
-                                isPlaying = true
-                                playCurrentBlock(currentPlayingAnswer!!, currentBlockIndex)
-                            } else if (answers.isNotEmpty()) {
-                                currentPlayingAnswer = answers.first()
-                                currentBlockIndex = 0
-                                isPlaying = true
-                                playCurrentBlock(answers.first(), 0)
-                            }
-                        }
-                        GestureAction.NEXT_ANSWER -> {
-                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
-                            if (answers.isNotEmpty()) {
-                                val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
-                                val nextIdx = if (currentIdx != -1) (currentIdx + 1) % answers.size else 0
-                                currentPlayingAnswer = answers[nextIdx]
-                                currentBlockIndex = 0
-                                isPlaying = true
-                                playCurrentBlock(answers[nextIdx], 0)
-                            }
-                        }
-                        GestureAction.PREV_ANSWER -> {
-                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
-                            if (answers.isNotEmpty()) {
-                                val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
-                                val prevIdx = if (currentIdx > 0) currentIdx - 1 else answers.size - 1
-                                currentPlayingAnswer = answers[prevIdx]
-                                currentBlockIndex = 0
-                                isPlaying = true
-                                playCurrentBlock(answers[prevIdx], 0)
-                            }
-                        }
-                        GestureAction.REPEAT -> {
-                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
-                            currentPlayingAnswer?.let { ans ->
-                                currentBlockIndex = 0
-                                isPlaying = true
-                                playCurrentBlock(ans, 0)
-                            }
-                        }
-                        GestureAction.SHORT_SUMMARY -> {
-                            currentPlayingAnswer?.let { ans ->
-                                app.ttsManager.speak(ans.shortAnswer, "short_summary")
-                            }
-                        }
-                        GestureAction.EXPLAIN_SIMPLER -> {
-                            if (showAfterAnswerMenu) showAfterAnswerMenu = false
-                            currentPlayingAnswer?.let { ans ->
-                                if (ans.simpleExplanation.isNotEmpty() && !ans.simpleExplanation.contains("(Generated on demand)")) {
-                                    app.ttsManager.speak(ans.simpleExplanation, "simple_explanation")
-                                } else {
-                                    // Generate simple explanation on demand
-                                    scope.launch {
-                                        val explanation = app.aiProviderManager.generateSimpleExplanation(
-                                            provider = aiSettings.provider,
-                                            apiKey = aiSettings.apiKey,
-                                            model = aiSettings.model,
-                                            baseUrl = aiSettings.baseUrl,
-                                            questionText = ans.questionText,
-                                            shortAnswer = ans.shortAnswer
-                                        )
-                                        val updated = ans.copy(simpleExplanation = explanation)
-                                        app.database.answerDao().updateAnswer(updated)
-                                        currentPlayingAnswer = updated
-                                        app.ttsManager.speak(explanation, "simple_explanation")
-                                    }
-                                }
-                            }
-                        }
-                        GestureAction.STOP_SILENT -> {
-                            app.ttsManager.stop()
-                            isPlaying = false
-                            showAfterAnswerMenu = false
-                            isDeskScreenOffOpen = false
-                        }
-                        GestureAction.JUMP_TO_N -> {
-                            if (answers.isNotEmpty()) {
-                                val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
-                                val jumpIdx = (currentIdx + 5) % answers.size
-                                currentPlayingAnswer = answers[jumpIdx]
-                                currentBlockIndex = 0
-                                isPlaying = true
-                                playCurrentBlock(answers[jumpIdx], 0)
-                            }
-                        }
-                        GestureAction.SPEED_UP -> {
-                            val newRate = (audioSettings.speechRate + 0.25f).coerceAtMost(2.0f)
-                            scope.launch { app.preferencesRepository.setSpeechRate(newRate) }
-                            app.ttsManager.spokenPrompt("Speed ${String.format("%.2f", newRate)}")
-                        }
-                        GestureAction.SPEED_DOWN -> {
-                            val newRate = (audioSettings.speechRate - 0.25f).coerceAtLeast(0.75f)
-                            scope.launch { app.preferencesRepository.setSpeechRate(newRate) }
-                            app.ttsManager.spokenPrompt("Speed ${String.format("%.2f", newRate)}")
-                        }
-                        GestureAction.START_END_SESSION -> {
-                            isSessionActive = !isSessionActive
-                        }
-                        GestureAction.GESTURE_HELP -> {
-                            val summary = gestureSettings.customMappings.entries.joinToString(". ") {
-                                "${it.key.replace('_', ' ')}: ${it.value.replace('_', ' ')}"
-                            }
-                            app.ttsManager.speak("Gesture controls: $summary", "gesture_help")
-                        }
-                        else -> {}
-                    }
                 }
             }
 
@@ -482,10 +289,7 @@ class MainActivity : ComponentActivity() {
                                                         app.database.answerDao().insertAnswer(newAns)
                                                     }
                                                     val saved = newAns.copy(id = id)
-                                                    currentPlayingAnswer = saved
-                                                    currentBlockIndex = 0
-                                                    isPlaying = true
-                                                    playCurrentBlock(saved, 0)
+                                                    app.playbackController.playAnswer(saved, 0)
                                                     activeTab = "answers"
                                                 }
                                             },
@@ -498,31 +302,9 @@ class MainActivity : ComponentActivity() {
                                                 Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                                                     AfterAnswerMenu(
                                                         countdownSeconds = afterMenuSeconds,
-                                                        onRepeat = {
-                                                            showAfterAnswerMenu = false
-                                                            currentPlayingAnswer?.let { ans ->
-                                                                currentBlockIndex = 0
-                                                                isPlaying = true
-                                                                playCurrentBlock(ans, 0)
-                                                            }
-                                                        },
-                                                        onNext = {
-                                                            showAfterAnswerMenu = false
-                                                            if (answers.isNotEmpty()) {
-                                                                val currentIdx = answers.indexOfFirst { it.id == currentPlayingAnswer?.id }
-                                                                val nextIdx = (currentIdx + 1) % answers.size
-                                                                currentPlayingAnswer = answers[nextIdx]
-                                                                currentBlockIndex = 0
-                                                                isPlaying = true
-                                                                playCurrentBlock(answers[nextIdx], 0)
-                                                            }
-                                                        },
-                                                        onSimpler = {
-                                                            showAfterAnswerMenu = false
-                                                            currentPlayingAnswer?.let { ans ->
-                                                                app.ttsManager.speak(ans.simpleExplanation, "simple_explanation")
-                                                            }
-                                                        }
+                                                        onRepeat = { app.playbackController.repeatCurrent() },
+                                                        onNext = { app.playbackController.nextAnswer() },
+                                                        onSimpler = { app.playbackController.speakSimpleExplanation() }
                                                     )
                                                 }
                                             }
@@ -530,10 +312,7 @@ class MainActivity : ComponentActivity() {
                                             AnswersScreen(
                                                 answers = answers,
                                                 onPlayAnswer = { ans ->
-                                                    currentPlayingAnswer = ans
-                                                    currentBlockIndex = 0
-                                                    isPlaying = true
-                                                    playCurrentBlock(ans, 0)
+                                                    app.playbackController.playAnswer(ans, 0)
                                                 },
                                                 onToggleStar = { id ->
                                                     scope.launch {
@@ -560,6 +339,7 @@ class MainActivity : ComponentActivity() {
                                                             request = AnswerRequest(
                                                                 imagesBase64 = failedAns.imagePaths,
                                                                 promptNote = failedAns.questionText,
+                                                                answerStyle = aiSettings.answerStyle,
                                                                 conciseMode = aiSettings.conciseMode,
                                                                 lazyExplanation = aiSettings.lazyExplanation
                                                             )
@@ -569,6 +349,9 @@ class MainActivity : ComponentActivity() {
                                                             questionText = res.questionText,
                                                             shortAnswer = res.shortAnswer,
                                                             blocks = res.blocks,
+                                                            answerParts = res.answerParts,
+                                                            table = res.table,
+                                                            graph = res.graph,
                                                             simpleExplanation = res.simpleExplanation,
                                                             status = "completed",
                                                             errorMessage = null
@@ -588,7 +371,6 @@ class MainActivity : ComponentActivity() {
                                                         )
                                                         val updated = ans.copy(simpleExplanation = exp)
                                                         app.database.answerDao().updateAnswer(updated)
-                                                        currentPlayingAnswer = updated
                                                         app.ttsManager.speak(exp, "simple_explanation")
                                                     }
                                                 }
@@ -598,6 +380,10 @@ class MainActivity : ComponentActivity() {
                                     "study" -> {
                                         StudyScreen(
                                             answers = answers,
+                                            currentPlayingAnswer = currentPlayingAnswer,
+                                            isPlaying = isPlaying,
+                                            currentPartIndex = currentPartIndex,
+                                            lastGestureText = lastGestureText,
                                             isSessionActive = isSessionActive,
                                             sessionDurationSeconds = sessionDurationSeconds,
                                             answersHeardCount = answersHeardCount,
@@ -609,7 +395,13 @@ class MainActivity : ComponentActivity() {
                                                     app.deskTapSensor.setSensitivity(sens)
                                                 }
                                             },
-                                            onToggleSession = { isSessionActive = !isSessionActive }
+                                            onToggleSession = { isSessionActive = !isSessionActive },
+                                            onPlayAnswer = { ans -> app.playbackController.playAnswer(ans, 0) },
+                                            onPause = {
+                                                if (isPlaying) app.playbackController.pause() else app.playbackController.resume()
+                                            },
+                                            onRepeatLastPart = { app.playbackController.repeatLastPart() },
+                                            onStartTableReading = { ans -> app.playbackController.readTableAnswer(ans) }
                                         )
                                     }
                                     "settings" -> {
@@ -628,7 +420,7 @@ class MainActivity : ComponentActivity() {
                                                     app.preferencesRepository.setUltraDimMode(isUltraDim)
                                                 }
                                             },
-                                            onSaveAi = { provider, key, model, baseUrl, fbProvider, fbKey, fbModel, concise, lazyExp, cheap ->
+                                            onSaveAi = { provider, key, model, baseUrl, fbProvider, fbKey, fbModel, concise, lazyExp, cheap, style ->
                                                 scope.launch {
                                                     app.preferencesRepository.saveAiConfig(
                                                         provider = provider,
@@ -640,7 +432,8 @@ class MainActivity : ComponentActivity() {
                                                         fallbackModel = fbModel,
                                                         conciseMode = concise,
                                                         lazyExplanation = lazyExp,
-                                                        cheapMode = cheap
+                                                        cheapMode = cheap,
+                                                        answerStyle = style
                                                     )
                                                 }
                                             },
@@ -648,10 +441,10 @@ class MainActivity : ComponentActivity() {
                                                 scope.launch {
                                                     app.preferencesRepository.setSpeechRate(rate)
                                                     app.preferencesRepository.setMathSlowdown(slowdown)
-                                                    app.preferencesRepository.setSpokenMenu(spokenMenu)
+                                                    app.preferencesRepository.setSpokenMenuEnabled(spokenMenu)
                                                     app.preferencesRepository.setSilentTextMode(silentMode)
                                                     app.preferencesRepository.setTestModeEnabled(testMode)
-                                                    app.preferencesRepository.setSpokenPrompts(spokenPrompts)
+                                                    app.preferencesRepository.setSpokenPromptsEnabled(spokenPrompts)
                                                 }
                                             },
                                             onSaveGesture = { sens ->

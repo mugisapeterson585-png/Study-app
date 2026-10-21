@@ -51,7 +51,8 @@ fun SettingsScreen(
         fallbackModel: String?,
         concise: Boolean,
         lazyExp: Boolean,
-        cheapMode: Boolean
+        cheapMode: Boolean,
+        answerStyle: String
     ) -> Unit,
     onSaveAudio: (rate: Float, slowdown: Boolean, spokenMenu: Boolean, silentMode: Boolean, testMode: Boolean, spokenPrompts: Boolean) -> Unit,
     onSaveGesture: (sensitivity: Int) -> Unit
@@ -74,6 +75,9 @@ fun SettingsScreen(
     var conciseMode by remember { mutableStateOf(aiSettings.conciseMode) }
     var lazyExplanation by remember { mutableStateOf(aiSettings.lazyExplanation) }
     var cheapMode by remember { mutableStateOf(aiSettings.cheapMode) }
+    var answerStyle by remember { mutableStateOf(aiSettings.answerStyle) }
+
+    val lastGestureText by app.playbackController.lastGestureText.collectAsState()
 
     // Model dropdown & fetching state
     var fetchedModels by remember { mutableStateOf<List<ModelInfo>>(emptyList()) }
@@ -475,65 +479,78 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Test Connection Button with selected model
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppButton(
-                            onClick = {
-                                isTestingConnection = true
-                                testResult = null
-                                scope.launch {
-                                    val res = app.aiProviderManager.testConnection(
-                                        selectedProvider, apiKeyInput, modelInput, baseUrlInput
-                                    )
-                                    testResult = res
-                                    isTestingConnection = false
+                    // Answer Style Selection (Direct by default, Direct + Reason, Show Working)
+                    Text(
+                        text = "Answer Delivery Style",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "Control how answers are structured and verbalized via TTS.",
+                        fontSize = 10.sp,
+                        color = colors.textSecondary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val styles = listOf(
+                        Triple("direct", "Direct Answer (Default)", "Only the final answer, no fluff, split into sequential parts with 600ms pauses"),
+                        Triple("direct_reason", "Direct + Short Reason", "Final answer first, followed by a single concise justification sentence"),
+                        Triple("working", "Show Working", "Full step-by-step breakdown and working process")
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        styles.forEach { (styleKey, title, desc) ->
+                            val isSel = answerStyle == styleKey
+                            AppButton(
+                                onClick = { answerStyle = styleKey },
+                                modifier = Modifier.fillMaxWidth(),
+                                isAccent = isSel
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (isSel) colors.accent else colors.textPrimary)
+                                        Text(desc, fontSize = 9.sp, color = colors.textSecondary)
+                                    }
+                                    if (isSel) {
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = colors.accent, modifier = Modifier.size(14.dp))
+                                    }
                                 }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            if (isTestingConnection) {
-                                CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Testing...", fontSize = 11.sp, color = colors.textPrimary)
-                            } else {
-                                Text("Test Connection", fontSize = 11.sp, color = colors.textPrimary)
                             }
                         }
-
-                        AppButton(
-                            onClick = {
-                                onSaveAi(
-                                    selectedProvider,
-                                    apiKeyInput,
-                                    modelInput,
-                                    baseUrlInput,
-                                    fallbackProviderInput,
-                                    fallbackKeyInput,
-                                    fallbackModelInput,
-                                    conciseMode,
-                                    lazyExplanation,
-                                    cheapMode
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                            isAccent = true
-                        ) {
-                            Text("Save Configuration", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.accent)
-                        }
                     }
 
-                    testResult?.let { res ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = res.message,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (res.success) colors.accent else colors.error
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Concise, Lazy & Cheap Mode Toggles
+                    AppToggle(
+                        checked = conciseMode,
+                        onCheckedChange = { conciseMode = it },
+                        label = "Concise Mode",
+                        sublabel = "Strict token reduction and shortest possible answers"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    AppToggle(
+                        checked = lazyExplanation,
+                        onCheckedChange = { lazyExplanation = it },
+                        label = "Lazy Explanation",
+                        sublabel = "Defers detailed explanation until explicitly requested via gestures"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    AppToggle(
+                        checked = cheapMode,
+                        onCheckedChange = { cheapMode = it },
+                        label = "Cheap / Economical Token Mode",
+                        sublabel = "Limits output token budget to reduce API costs"
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Fallback provider section
-                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         text = "Automatic Failover / Fallback Provider",
                         fontSize = 11.sp,
@@ -571,6 +588,66 @@ fun SettingsScreen(
                         label = "Fallback API Key",
                         placeholder = "Paste fallback API key here"
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Test Connection Button with selected model & Save Configuration
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppButton(
+                            onClick = {
+                                isTestingConnection = true
+                                testResult = null
+                                scope.launch {
+                                    val res = app.aiProviderManager.testConnection(
+                                        selectedProvider, apiKeyInput, modelInput, baseUrlInput
+                                    )
+                                    testResult = res
+                                    isTestingConnection = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (isTestingConnection) {
+                                CircularProgressIndicator(color = colors.accent, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Testing...", fontSize = 11.sp, color = colors.textPrimary)
+                            } else {
+                                Text("Test Connection", fontSize = 11.sp, color = colors.textPrimary)
+                            }
+                        }
+
+                        AppButton(
+                            onClick = {
+                                onSaveAi(
+                                    selectedProvider,
+                                    apiKeyInput,
+                                    modelInput,
+                                    baseUrlInput,
+                                    fallbackProviderInput,
+                                    fallbackKeyInput,
+                                    fallbackModelInput,
+                                    conciseMode,
+                                    lazyExplanation,
+                                    cheapMode,
+                                    answerStyle
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            isAccent = true
+                        ) {
+                            Text("Save Configuration", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colors.accent)
+                        }
+                    }
+
+                    testResult?.let { res ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = res.message,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (res.success) colors.accent else colors.error
+                        )
+                    }
                 }
             }
 
@@ -682,6 +759,20 @@ fun SettingsScreen(
             "gestures" -> {
                 // Section 3 & 4: Desk Gestures & Live Waves Box
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Last gesture live feedback banner
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            Text("LAST GESTURE DETECTED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.accent)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (lastGestureText.isNotBlank()) lastGestureText else "No desk taps detected yet",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.textPrimary
+                            )
+                        }
+                    }
+
                     // Live Wave Pad (Section 3 RESTORE)
                     DeskKnockPad(
                         sensorManager = app.deskTapSensor,
@@ -729,6 +820,16 @@ fun SettingsScreen(
                             },
                             label = "Haptic Vibration Confirmation",
                             sublabel = "Vibrates gently when a desk knock pattern is recognized"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AppToggle(
+                            checked = gestureSettings.ignorePhoneTouches,
+                            onCheckedChange = {
+                                app.deskTapSensor.ignorePhoneTouches = it
+                                scope.launch { app.preferencesRepository.setIgnorePhoneTouches(it) }
+                            },
+                            label = "Ignore Screen & Phone Touches",
+                            sublabel = "Rejects vibrations occurring within 200ms of touching the phone screen"
                         )
                     }
                 }

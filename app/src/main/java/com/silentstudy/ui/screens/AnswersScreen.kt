@@ -23,6 +23,8 @@ import com.silentstudy.data.model.Answer
 import com.silentstudy.ui.components.AppButton
 import com.silentstudy.ui.components.AppCard
 import com.silentstudy.ui.components.AppTextField
+import com.silentstudy.ui.components.TableView
+import com.silentstudy.ui.components.GraphChartView
 import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.launch
 
@@ -259,6 +261,18 @@ fun AnswersScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("Generate Simple Explanation (On Demand)", fontSize = 11.sp, color = colors.textPrimary)
                                 }
+                            }
+
+                            // Structured Table
+                            answer.table?.let { tbl ->
+                                Spacer(modifier = Modifier.height(8.dp))
+                                TableView(table = tbl)
+                            }
+
+                            // Structured Graph
+                            answer.graph?.let { grp ->
+                                Spacer(modifier = Modifier.height(8.dp))
+                                GraphChartView(graph = grp)
                             }
                         }
 

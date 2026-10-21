@@ -57,9 +57,16 @@ class SilentStudyService : Service() {
         val app = application as SilentStudyApp
         when (intent?.action) {
             ACTION_PLAY_PAUSE -> {
-                // Toggle playback in audio controller
+                if (app.playbackController.isPlaying.value) {
+                    app.playbackController.pause()
+                } else {
+                    app.playbackController.currentPlayingAnswer.value?.let {
+                        app.playbackController.playAnswer(it, app.playbackController.currentPartIndex.value)
+                    }
+                }
             }
             ACTION_STOP -> {
+                app.playbackController.stop()
                 stopSelf()
             }
         }

@@ -1,7 +1,10 @@
 package com.silentstudy.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -9,27 +12,35 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.silentstudy.data.model.Answer
 import com.silentstudy.gestures.DeskTapSensorManager
-import com.silentstudy.ui.components.AppButton
-import com.silentstudy.ui.components.AppCard
-import com.silentstudy.ui.components.DeskKnockPad
+import com.silentstudy.ui.components.*
 import com.silentstudy.ui.theme.LocalAppColors
 import kotlinx.coroutines.delay
 
 @Composable
 fun StudyScreen(
     answers: List<Answer>,
+    currentPlayingAnswer: Answer? = null,
+    isPlaying: Boolean = false,
+    currentPartIndex: Int = 0,
+    lastGestureText: String = "Ready for desk taps",
     isSessionActive: Boolean,
     sessionDurationSeconds: Long,
     answersHeardCount: Int,
     sensorManager: DeskTapSensorManager,
     sensitivity: Int,
     onSensitivityChange: (Int) -> Unit,
-    onToggleSession: () -> Unit
+    onToggleSession: () -> Unit,
+    onPlayAnswer: (Answer) -> Unit = {},
+    onPause: () -> Unit = {},
+    onRepeatLastPart: () -> Unit = {},
+    onStartTableReading: (Answer) -> Unit = {}
 ) {
     val colors = LocalAppColors.current
     var studyTab by remember { mutableStateOf("session") } // session, quiz, pomodoro
@@ -68,8 +79,48 @@ fun StudyScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Prominent "Last gesture" feedback line
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Hearing,
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "LAST GESTURE:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textSecondary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = lastGestureText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.accent
+                    )
+                }
+            }
+        }
+
         // Auto-tune sensitivity prompt banner
         if (suggestAutoTune) {
             AppCard(modifier = Modifier.fillMaxWidth()) {
@@ -147,25 +198,25 @@ fun StudyScreen(
                         fontWeight = FontWeight.Bold,
                         color = colors.accent
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     val mins = sessionDurationSeconds / 60
                     val secs = sessionDurationSeconds % 60
                     Text(
                         text = String.format("%02d:%02d", mins, secs),
-                        fontSize = 54.sp,
+                        fontSize = 50.sp,
                         fontWeight = FontWeight.Light,
                         color = colors.textPrimary,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                     Text(
-                        text = "Phone resting flat · Earbuds audio & desk taps active",
+                        text = "Phone flat on desk · Screen off & earbuds active",
                         fontSize = 11.sp,
                         color = colors.textSecondary,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -180,7 +231,7 @@ fun StudyScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     AppButton(
                         onClick = onToggleSession,
                         modifier = Modifier.fillMaxWidth(),
@@ -201,7 +252,120 @@ fun StudyScreen(
                     }
                 }
 
-                // Live Tap Waves Box right on Study Screen (Section 3 RESTORE)
+                // Currently Playing Answer Block / Parts
+                if (currentPlayingAnswer != null) {
+                    val ans = currentPlayingAnswer
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ACTIVE PLAYBACK #${ans.id} · ${ans.subject}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.accent,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = ans.shortAnswer,
+                                    fontSize = 12.sp,
+                                    color = colors.textPrimary,
+                                    maxLines = 2
+                                )
+                            }
+                            IconButton(onClick = { if (isPlaying) onPause() else onPlayAnswer(ans) }) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = colors.accent
+                                )
+                            }
+                        }
+
+                        // Answer Parts sequence display
+                        val parts = ans.answerParts.ifEmpty {
+                            ans.blocks.map { com.silentstudy.data.model.AnswerPart(display = it.display, spoken = it.spoken) }
+                        }
+                        if (parts.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                parts.forEachIndexed { idx, part ->
+                                    val isCurrent = idx == currentPartIndex
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isCurrent) colors.accent.copy(alpha = 0.20f) else colors.control)
+                                            .border(
+                                                1.dp,
+                                                if (isCurrent) colors.accent else colors.border,
+                                                RoundedCornerShape(6.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (part.label.isNotBlank()) {
+                                                    Text(
+                                                        text = part.label,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (isCurrent) colors.accent else colors.textSecondary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                }
+                                                Text(
+                                                    text = part.display,
+                                                    fontSize = 11.sp,
+                                                    color = colors.textPrimary,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                            if (isCurrent && isPlaying) {
+                                                Text("Speaking", fontSize = 9.sp, color = colors.accent, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            AppButton(
+                                onClick = onRepeatLastPart,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Repeat Last Part Only", fontSize = 11.sp, color = colors.textSecondary)
+                            }
+                        }
+
+                        // Table display if present
+                        if (ans.table != null) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            TableView(
+                                table = ans.table,
+                                onReadTable = { onStartTableReading(ans) }
+                            )
+                        }
+
+                        // Graph display if present
+                        if (ans.graph != null) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            GraphChartView(graph = ans.graph)
+                        }
+                    }
+                }
+
+                // Live Jerk Waves Box right on Study Screen
                 DeskKnockPad(
                     sensorManager = sensorManager,
                     sensitivity = sensitivity,
@@ -240,90 +404,72 @@ fun StudyScreen(
                         if (isFlipped) {
                             Text(
                                 text = currentQuizAnswer.shortAnswer,
-                                fontSize = 12.sp,
-                                color = colors.textSecondary
+                                fontSize = 13.sp,
+                                color = colors.textPrimary
                             )
                         } else {
-                            Text(
-                                text = "Tap 'Reveal' or listen in earbuds. Answer with 1 tap (knew it) or 2 taps (missed).",
-                                fontSize = 11.sp,
-                                color = colors.textSecondary
-                            )
+                            AppButton(
+                                onClick = { isFlipped = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Reveal Answer", fontSize = 12.sp, color = colors.accent)
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             AppButton(
                                 onClick = {
-                                    knewCount += 1
+                                    knewCount++
                                     isFlipped = false
-                                    if (quizIndex < answers.size - 1) quizIndex += 1
+                                    quizIndex = (quizIndex + 1) % answers.size
                                 },
+                                isAccent = true,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("1 Tap: Knew It", fontSize = 11.sp, color = colors.accent)
-                            }
-                            AppButton(
-                                onClick = { isFlipped = !isFlipped },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(if (isFlipped) "Hide" else "Reveal", fontSize = 11.sp, color = colors.textPrimary)
+                                Text("Knew It", fontSize = 12.sp, color = colors.accent)
                             }
                             AppButton(
                                 onClick = {
-                                    missedCount += 1
+                                    missedCount++
                                     isFlipped = false
-                                    if (quizIndex < answers.size - 1) quizIndex += 1
+                                    quizIndex = (quizIndex + 1) % answers.size
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("2 Taps: Missed", fontSize = 11.sp, color = colors.textSecondary)
+                                Text("Missed", fontSize = 12.sp, color = colors.error)
                             }
                         }
                     } else {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("No answers saved yet to review.", fontSize = 12.sp, color = colors.textSecondary)
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text("No answers saved yet. Capture questions to practice.", fontSize = 12.sp, color = colors.textSecondary)
                     }
                 }
             }
 
             "pomodoro" -> {
                 AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Text("Library Pomodoro (25/5 Cycle)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.accent)
+                    Text("Silent Pomodoro Focus", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.accent)
                     Spacer(modifier = Modifier.height(16.dp))
+
                     Text(
                         text = String.format("%02d:%02d", pomoMinutes, pomoSeconds),
-                        fontSize = 54.sp,
+                        fontSize = 52.sp,
                         fontWeight = FontWeight.Light,
                         color = colors.textPrimary,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
-                    Text(
-                        text = "Gentle tone signals completion in earbuds",
-                        fontSize = 11.sp,
-                        color = colors.textSecondary,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
 
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppButton(
-                            onClick = { pomoRunning = !pomoRunning },
-                            modifier = Modifier.weight(1f),
-                            isAccent = !pomoRunning
-                        ) {
-                            Text(if (pomoRunning) "Pause" else "Start Focus", fontSize = 12.sp, color = colors.textPrimary)
-                        }
-                        AppButton(
-                            onClick = {
-                                pomoRunning = false
-                                pomoMinutes = 25
-                                pomoSeconds = 0
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Reset", fontSize = 12.sp, color = colors.textSecondary)
-                        }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    AppButton(
+                        onClick = { pomoRunning = !pomoRunning },
+                        modifier = Modifier.fillMaxWidth(),
+                        isAccent = !pomoRunning
+                    ) {
+                        Text(if (pomoRunning) "Pause Focus" else "Start 25-Min Focus", fontSize = 12.sp, color = colors.textPrimary)
                     }
                 }
             }

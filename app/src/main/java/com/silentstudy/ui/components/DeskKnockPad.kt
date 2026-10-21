@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -31,13 +30,12 @@ import androidx.compose.ui.unit.sp
 import com.silentstudy.gestures.DeskGesture
 import com.silentstudy.gestures.DeskTapSensorManager
 import com.silentstudy.ui.theme.LocalAppColors
-import kotlinx.coroutines.launch
 
 /**
- * Live Desk Knock Pad (Section 3 RESTORE)
- * Shows real-time accelerometer wave signal, horizontal threshold indicator,
- * tap detection ripple pulses, live building pattern counter ("2 taps..."),
- * sensitivity slider, desk calibration button, and direct touch testing.
+ * Rebuilt Live Desk Tap Pad (200Hz Jerk Sensing).
+ * Shows real-time jerk wave signal, dynamic adaptive threshold guideline,
+ * tap detection ripple pulses, building pattern counter ("2 taps..."),
+ * tap markers, and sensitivity slider with 5-tap calibration.
  */
 @Composable
 fun DeskKnockPad(
@@ -48,16 +46,16 @@ fun DeskKnockPad(
     showQuickButtons: Boolean = true
 ) {
     val colors = LocalAppColors.current
-    val scope = rememberCoroutineScope()
 
     val waveform by sensorManager.liveWaveform.collectAsState()
     val patternLabel by sensorManager.currentPatternLabel.collectAsState()
     val lastRecognized by sensorManager.lastRecognized.collectAsState()
+    val noiseFloor by sensorManager.noiseFloor.collectAsState()
+    val currentThreshold by sensorManager.currentThresholdDisplay.collectAsState()
+    val tapMarkers by sensorManager.tapMarkers.collectAsState()
+    val calibrationState by sensorManager.calibrationState.collectAsState()
 
-    var isCalibrating by remember { mutableStateOf(false) }
-    var calibrationMessage by remember { mutableStateOf<String?>(null) }
     var rippleOffset by remember { mutableStateOf<Offset?>(null) }
-    var isLongPressing by remember { mutableStateOf(false) }
 
     // Tap pulse animation
     val pulseAnim = remember { Animatable(0f) }
@@ -67,7 +65,7 @@ fun DeskKnockPad(
             pulseAnim.snapTo(1f)
             pulseAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = 400, easing = LinearEasing)
+                animationSpec = tween(durationMillis = 350, easing = LinearEasing)
             )
         }
     }
@@ -88,7 +86,7 @@ fun DeskKnockPad(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "LIVE DESK KNOCK PAD & SENSOR",
+                    text = "DESK TAP SENSOR & LIVE WAVE (200Hz)",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.textPrimary,
@@ -123,7 +121,7 @@ fun DeskKnockPad(
 
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "Phone flat on desk: knocks vibrate the table and register here. You can also tap this pad to test.",
+            text = "Small controlled taps on the desk next to the phone. Jerk threshold adapts dynamically to ambient noise floor.",
             fontSize = 11.sp,
             color = colors.textSecondary
         )
@@ -134,57 +132,49 @@ fun DeskKnockPad(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(110.dp)
+                .height(115.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(if (isLongPressing) colors.accent.copy(alpha = 0.15f) else colors.control)
+                .background(colors.control)
                 .border(1.dp, colors.border, RoundedCornerShape(14.dp))
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onPress = { offset ->
                             rippleOffset = offset
-                            isLongPressing = false
                             val released = tryAwaitRelease()
                             if (released) {
-                                isLongPressing = false
                                 rippleOffset = null
                             }
                         },
                         onTap = { offset ->
                             rippleOffset = offset
                             sensorManager.triggerSoftTap()
-                        },
-                        onLongPress = { offset ->
-                            isLongPressing = true
-                            rippleOffset = offset
-                            sensorManager.triggerLongKnock()
                         }
                     )
                 }
         ) {
-            val thresholdRatio = (sensorManager.threshold / 4.0f).coerceIn(0.1f, 0.9f)
+            val thresholdRatio = (currentThreshold / 2.0f).coerceIn(0.12f, 0.88f)
 
             Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp)) {
                 val width = size.width
                 val height = size.height
 
-                // 1. Draw horizontal threshold guideline
+                // 1. Draw horizontal threshold guideline (accent line)
                 val thresholdY = height * (1f - thresholdRatio)
                 drawLine(
-                    color = Color(0xFF5B8DEF).copy(alpha = 0.45f),
+                    color = Color(0xFF5B8DEF).copy(alpha = 0.55f),
                     start = Offset(0f, thresholdY),
                     end = Offset(width, thresholdY),
                     strokeWidth = 1.5f
                 )
 
-                // 2. Draw live waveform line
+                // 2. Draw live waveform jerk line
                 if (waveform.isNotEmpty()) {
                     val path = Path()
                     val stepX = width / (waveform.size - 1).coerceAtLeast(1)
 
                     waveform.forEachIndexed { index, mag ->
                         val x = index * stepX
-                        // Normalize 0..100% to canvas height (inverted)
-                        val y = height - ((mag / 100f) * height * 0.9f).coerceIn(4f, height - 4f)
+                        val y = height - ((mag / 100f) * height * 0.90f).coerceIn(4f, height - 4f)
                         if (index == 0) {
                             path.moveTo(x, y)
                         } else {
@@ -199,7 +189,17 @@ fun DeskKnockPad(
                     )
                 }
 
-                // 3. Draw touch ripple marker if active
+                // 3. Draw tap markers as vertical tick dots
+                tapMarkers.takeLast(6).forEach { marker ->
+                    val x = (marker.index.toFloat() / 39f).coerceIn(0f, 1f) * width
+                    drawCircle(
+                        color = Color(0xFF5B8DEF),
+                        radius = 4.dp.toPx(),
+                        center = Offset(x, height * 0.2f)
+                    )
+                }
+
+                // 4. Draw touch ripple marker if active
                 rippleOffset?.let { pos ->
                     drawCircle(
                         color = Color(0xFF5B8DEF).copy(alpha = 0.35f),
@@ -208,7 +208,7 @@ fun DeskKnockPad(
                     )
                 }
 
-                // 4. Pulse border effect on recognized tap
+                // 5. Pulse border effect on recognized tap
                 if (pulseAnim.value > 0.05f) {
                     drawRect(
                         color = Color(0xFF5B8DEF).copy(alpha = pulseAnim.value * 0.25f),
@@ -217,17 +217,28 @@ fun DeskKnockPad(
                 }
             }
 
-            // Top overlay: Threshold label
-            Text(
-                text = "THRESHOLD ${(sensorManager.threshold * 10).toInt() / 10f} m/s²",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = colors.textSecondary.copy(alpha = 0.7f),
+            // Top overlay: Threshold & Noise Floor labels
+            Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .align(Alignment.TopStart)
-                    .padding(8.dp)
-            )
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "THRESHOLD ${String.format("%.2f", currentThreshold)} m/s²",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.accent
+                )
+                Text(
+                    text = "NOISE ${String.format("%.3f", noiseFloor)} m/s²",
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = colors.textSecondary
+                )
+            }
 
             // Center overlay: Pattern Building status
             Column(
@@ -243,7 +254,7 @@ fun DeskKnockPad(
                     )
                 } else {
                     Text(
-                        text = if (isLongPressing) "Sustained Long Knock..." else "Tap desk or touch pad",
+                        text = "Tap desk next to phone or touch pad",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.textSecondary
@@ -266,7 +277,7 @@ fun DeskKnockPad(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Sensitivity",
+                        text = "Sensitivity (Jerk)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.textPrimary
@@ -290,29 +301,22 @@ fun DeskKnockPad(
             // Calibrate Button
             AppButton(
                 onClick = {
-                    isCalibrating = true
-                    calibrationMessage = null
-                    sensorManager.calibrateDeskBaseline(
-                        scope = scope,
-                        onProgress = {},
-                        onComplete = { recommended ->
-                            isCalibrating = false
-                            onSensitivityChange(recommended)
-                            calibrationMessage = "Calibrated to $recommended/10"
-                        }
-                    )
+                    if (calibrationState.inProgress) {
+                        sensorManager.cancelCalibration()
+                    } else {
+                        sensorManager.start5TapCalibration()
+                    }
                 },
-                modifier = Modifier.padding(top = 8.dp),
-                enabled = !isCalibrating
+                modifier = Modifier.padding(top = 8.dp)
             ) {
-                if (isCalibrating) {
+                if (calibrationState.inProgress) {
                     CircularProgressIndicator(
                         color = colors.accent,
                         modifier = Modifier.size(12.dp),
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Calibrating...", fontSize = 11.sp, color = colors.textPrimary)
+                    Text("${calibrationState.tapCount}/5", fontSize = 11.sp, color = colors.accent)
                 } else {
                     Icon(
                         imageVector = Icons.Default.Speed,
@@ -321,18 +325,35 @@ fun DeskKnockPad(
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Calibrate", fontSize = 11.sp, color = colors.textPrimary)
+                    Text("5-Tap Calibrate", fontSize = 11.sp, color = colors.textPrimary)
                 }
             }
         }
 
-        if (calibrationMessage != null) {
+        // Calibration status banner
+        if (calibrationState.inProgress) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.accent.copy(alpha = 0.15f))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = "Tap the desk 5 times, softly, the way you will use it (${calibrationState.tapCount}/5 recorded)",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.accent
+                )
+            }
+        } else if (calibrationState.isComplete) {
+            Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = calibrationMessage!!,
+                text = "Optimal threshold: ${String.format("%.2f", calibrationState.computedThreshold)} m/s² · Sensitivity: ${calibrationState.recommendedSensitivity}/10",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
-                color = colors.accent,
-                modifier = Modifier.padding(top = 2.dp)
+                color = colors.accent
             )
         }
 
@@ -347,7 +368,7 @@ fun DeskKnockPad(
                     "1 Tap" to DeskGesture.SINGLE_TAP,
                     "2 Taps" to DeskGesture.DOUBLE_TAP,
                     "3 Taps" to DeskGesture.TRIPLE_TAP,
-                    "Long Knock" to DeskGesture.LONG_KNOCK
+                    "Tap-Pause-Tap" to DeskGesture.TAP_PAUSE_TAP
                 ).forEach { (label, gesture) ->
                     AppButton(
                         onClick = { sensorManager.simulateKnock(gesture) },

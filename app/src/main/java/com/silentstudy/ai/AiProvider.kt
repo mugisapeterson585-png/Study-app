@@ -3,7 +3,7 @@ package com.silentstudy.ai
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import com.silentstudy.data.model.AnswerBlock
+import com.silentstudy.data.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,8 +31,10 @@ data class TokenUsage(
 data class AnswerRequest(
     val imagesBase64: List<String>,
     val promptNote: String? = null,
+    val answerStyle: String = "direct", // "direct", "short_reason", "show_working"
+    val captureMode: String = "auto",   // "auto", "direct", "table", "graph"
     val conciseMode: Boolean = true,
-    val maxOutputTokens: Int = 1200,
+    val maxOutputTokens: Int = 400,
     val lazyExplanation: Boolean = true
 )
 
@@ -40,8 +42,11 @@ data class AnswerResult(
     val subject: String,
     val questionText: String,
     val shortAnswer: String,
-    val blocks: List<AnswerBlock>,
-    val simpleExplanation: String,
+    val blocks: List<AnswerBlock> = emptyList(),
+    val answerParts: List<AnswerPart> = emptyList(),
+    val table: TableData? = null,
+    val graph: GraphData? = null,
+    val simpleExplanation: String = "",
     val usage: TokenUsage = TokenUsage(),
     val rawModelUsed: String = ""
 )
@@ -66,33 +71,76 @@ class AiProviderManager {
     // In-memory cache for fetched models
     private val modelCache = mutableMapOf<String, List<ModelInfo>>()
 
-    private fun buildSystemInstruction(concise: Boolean, lazyExplanation: Boolean): String {
-        val brevity = if (concise) "Be concise, avoid repetitive filler, and provide crisp, direct logic." else "Provide clear, comprehensive guidance."
-        val explanationField = if (lazyExplanation) {
-            "\"simple_explanation\": \"(Generated on demand)\""
-        } else {
-            "\"simple_explanation\": \"Explain-like-I'm-new conceptual explanation in clear, everyday language.\""
+    private fun buildSystemInstruction(answerStyle: String, captureMode: String): String {
+        val styleInstruction = when (answerStyle.lowercase()) {
+            "show_working" -> """
+                ANSWER STYLE: Show working. Provide the final answer first, followed by clear numbered steps or working.
+            """.trimIndent()
+            "short_reason" -> """
+                ANSWER STYLE: Direct answer + short reason. Output the direct final answer, and exactly one brief sentence explaining why.
+            """.trimIndent()
+            else -> """
+                CRITICAL - DIRECT ANSWER MODE:
+                Output ONLY the final answer. No explanation, no restating the question, no reasoning, no working, no introductions, no 'the answer is'.
+                - For multiple choice: give ONLY the letter and answer text (e.g. 'B. Photosynthesis').
+                - For short questions: give ONLY the direct answer.
+                - For equations, calculations, or multi-part questions: give the FINAL result only, broken into short sequential parts in 'answer_parts' so the student can easily hear and write it down.
+                  Example: Part 1: x = 3.5, Part 2: y = -2.
+                  Do NOT explain how to get the answer. Do NOT show steps.
+                - For questions with sub-questions: label parts as '(a)', '(b)', etc.
+            """.trimIndent()
+        }
+
+        val tableGraphInstruction = when (captureMode.lowercase()) {
+            "table" -> """
+                FOCUS: The captured image is a TABLE. Extract all structured table data into the "table" JSON field with title, headers, and rows. If asked a specific question about the table, provide the straight answer first in 'short_answer' and 'answer_parts', and also extract the table.
+            """.trimIndent()
+            "graph" -> """
+                FOCUS: The captured image is a GRAPH or CHART. Extract all structured data into the "graph" JSON field with type, title, x_axis, y_axis, series (with numerical points), key_points, and trend. If asked a question about the graph, provide the straight answer first in 'short_answer', followed by key values.
+            """.trimIndent()
+            else -> """
+                If the image contains a TABLE, extract structured table data in the optional "table" field.
+                If the image contains a GRAPH/CHART (line, bar, pie, scatter, histogram), extract structured chart data in the optional "graph" field.
+            """.trimIndent()
         }
 
         return """
-            You are SilentStudy, an elite private AI study companion for students in libraries.
-            $brevity
-            Read the captured question photo(s) (including handwriting, equations, and diagrams) and return STRICT JSON with this exact schema:
+            You are SilentStudy, an ultra-fast private library study assistant.
+            $styleInstruction
+            $tableGraphInstruction
+
+            Return STRICT RAW JSON with this schema (no markdown formatting, no code blocks):
             {
               "subject": "Mathematics" | "Physics" | "Chemistry" | "Biology" | "History" | "General",
               "question_text": "Exact text of the question",
-              "short_answer": "1-2 sentence TL;DR direct answer",
-              "blocks": [
+              "short_answer": "Final direct answer in 1 sentence or formula",
+              "answer_parts": [
                 {
-                  "type": "text" | "math" | "step",
-                  "display": "Formatted written form (LaTeX for math)",
-                  "spoken": "CRITICAL: Natural-language verbalized reading for earbud TTS. Spell out all equations phonetically (e.g. 'x squared plus 3 equals 7'). For steps, say 'Step 1: ...'",
-                  "stepNumber": 1
+                  "label": "Part 1" | "(a)" | "Result",
+                  "display": "Formatted written form (e.g. 'x = 3.5')",
+                  "spoken": "Natural language phonetic pronunciation for earbud TTS without LaTeX symbols (e.g. 'x equals three point five')"
                 }
               ],
-              $explanationField
+              "table": {
+                "title": "Table Title",
+                "headers": ["Header 1", "Header 2"],
+                "rows": [["Val 1", "Val 2"]]
+              },
+              "graph": {
+                "type": "line" | "bar" | "pie" | "scatter" | "histogram",
+                "title": "Graph Title",
+                "x_axis": {"label": "X Label", "unit": "Unit"},
+                "y_axis": {"label": "Y Label", "unit": "Unit"},
+                "series": [
+                  {
+                    "name": "Series 1",
+                    "points": [{"x": 0.0, "y": 0.0, "label": "Origin"}]
+                  }
+                ],
+                "key_points": ["Highest point at ...", "Intercept at ..."],
+                "trend": "Overall trend description"
+              }
             }
-            Respond ONLY with raw valid JSON without markdown formatting or code blocks.
         """.trimIndent()
     }
 
@@ -121,7 +169,6 @@ class AiProviderManager {
             }
             list
         } catch (e: Exception) {
-            // Return cached or fallback list on failure
             modelCache[cacheKey] ?: getDefaultFallbackModels(provider)
         }
     }
@@ -144,13 +191,12 @@ class AiProviderManager {
             val id = rawName.removePrefix("models/")
             val displayName = obj.get("displayName")?.asString ?: id
 
-            // Check if model supports generateContent
             val methods = obj.getAsJsonArray("supportedGenerationMethods")
             val supportsContent = methods?.any { it.asString == "generateContent" } ?: false
             if (!supportsContent) continue
 
             val isVision = id.contains("flash") || id.contains("pro") || id.contains("vision") || id.contains("2.0") || id.contains("2.5") || id.contains("1.5")
-            val isFree = id.contains("flash") // Generous free tier
+            val isFree = id.contains("flash")
             result.add(
                 ModelInfo(
                     id = id,
@@ -168,9 +214,7 @@ class AiProviderManager {
     private fun fetchOpenAiModels(apiKey: String): List<ModelInfo> {
         if (apiKey.isBlank()) return getDefaultFallbackModels("openai")
         val url = "https://api.openai.com/v1/models"
-        val req = Request.Builder().url(url)
-            .header("Authorization", "Bearer $apiKey")
-            .get().build()
+        val req = Request.Builder().url(url).header("Authorization", "Bearer $apiKey").get().build()
         val res = client.newCall(req).execute()
         if (!res.isSuccessful) throw IOException("HTTP ${res.code}: ${res.message}")
 
@@ -181,16 +225,23 @@ class AiProviderManager {
         val result = mutableListOf<ModelInfo>()
         for (item in dataArr) {
             val id = item.asJsonObject.get("id")?.asString ?: continue
-            if (id.startsWith("text-embedding") || id.startsWith("whisper") || id.startsWith("tts") || id.startsWith("dall-e")) continue
-            val isVision = id.contains("4o") || id.contains("vision") || id.contains("4-turbo") || id.startsWith("o1")
+            if (!id.contains("gpt") && !id.contains("o1")) continue
+
+            val isVision = id.contains("4o") || id.contains("vision") || id.contains("o1")
+            val (inPrice, outPrice) = when {
+                id.contains("mini") -> Pair(0.15, 0.60)
+                id.contains("4o") -> Pair(2.50, 10.00)
+                id.contains("o1") -> Pair(15.00, 60.00)
+                else -> Pair(0.50, 1.50)
+            }
             result.add(
                 ModelInfo(
                     id = id,
                     name = id,
                     isVision = isVision,
                     isFree = false,
-                    promptPricePerM = if (id.contains("mini")) 0.15 else 2.50,
-                    completionPricePerM = if (id.contains("mini")) 0.60 else 10.00
+                    promptPricePerM = inPrice,
+                    completionPricePerM = outPrice
                 )
             )
         }
@@ -199,42 +250,46 @@ class AiProviderManager {
 
     private fun fetchAnthropicModels(apiKey: String): List<ModelInfo> {
         if (apiKey.isBlank()) return getDefaultFallbackModels("claude")
-        val url = "https://api.anthropic.com/v1/models"
-        val req = Request.Builder().url(url)
-            .header("x-api-key", apiKey)
-            .header("anthropic-version", "2023-06-01")
-            .get().build()
-        val res = client.newCall(req).execute()
-        if (!res.isSuccessful) return getDefaultFallbackModels("claude")
-
-        val json = res.body?.string() ?: return getDefaultFallbackModels("claude")
-        val root = gson.fromJson(json, JsonObject::class.java)
-        val dataArr = root.getAsJsonArray("data") ?: return getDefaultFallbackModels("claude")
-
-        val result = mutableListOf<ModelInfo>()
-        for (item in dataArr) {
-            val id = item.asJsonObject.get("id")?.asString ?: continue
-            val displayName = item.asJsonObject.get("display_name")?.asString ?: id
-            result.add(
-                ModelInfo(
-                    id = id,
-                    name = displayName,
-                    isVision = true,
-                    isFree = false,
-                    promptPricePerM = if (id.contains("haiku")) 0.80 else 3.00,
-                    completionPricePerM = if (id.contains("haiku")) 4.00 else 15.00
-                )
-            )
-        }
-        return if (result.isNotEmpty()) result else getDefaultFallbackModels("claude")
+        try {
+            val url = "https://api.anthropic.com/v1/models"
+            val req = Request.Builder()
+                .url(url)
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .get().build()
+            val res = client.newCall(req).execute()
+            if (res.isSuccessful) {
+                val json = res.body?.string() ?: ""
+                val root = gson.fromJson(json, JsonObject::class.java)
+                val data = root.getAsJsonArray("data")
+                if (data != null && data.size() > 0) {
+                    val list = mutableListOf<ModelInfo>()
+                    for (item in data) {
+                        val id = item.asJsonObject.get("id")?.asString ?: continue
+                        val name = item.asJsonObject.get("display_name")?.asString ?: id
+                        list.add(
+                            ModelInfo(
+                                id = id,
+                                name = name,
+                                isVision = true,
+                                isFree = false,
+                                promptPricePerM = if (id.contains("haiku")) 0.80 else 3.00,
+                                completionPricePerM = if (id.contains("haiku")) 4.00 else 15.00
+                            )
+                        )
+                    }
+                    if (list.isNotEmpty()) return list
+                }
+            }
+        } catch (_: Exception) {}
+        return getDefaultFallbackModels("claude")
     }
 
     private fun fetchOpenRouterModels(): List<ModelInfo> {
-        // OpenRouter models can be fetched without an API key
         val url = "https://openrouter.ai/api/v1/models"
         val req = Request.Builder().url(url).get().build()
         val res = client.newCall(req).execute()
-        if (!res.isSuccessful) return getDefaultFallbackModels("openrouter")
+        if (!res.isSuccessful) throw IOException("HTTP ${res.code}: ${res.message}")
 
         val json = res.body?.string() ?: return getDefaultFallbackModels("openrouter")
         val root = gson.fromJson(json, JsonObject::class.java)
@@ -246,18 +301,18 @@ class AiProviderManager {
             val id = obj.get("id")?.asString ?: continue
             val name = obj.get("name")?.asString ?: id
 
-            // Check modality
-            val arch = obj.getAsJsonObject("architecture")
-            val modality = arch?.get("modality")?.asString ?: ""
-            val isVision = modality.contains("image") || id.contains("vision") || id.contains("gemini") || id.contains("gpt-4o") || id.contains("claude-3") || id.contains("-vl")
+            val architecture = obj.getAsJsonObject("architecture")
+            val modality = architecture?.get("modality")?.asString ?: ""
+            val isVision = modality.contains("image->text") ||
+                    modality.contains("multimodal") ||
+                    id.contains("vision") || id.contains("flash") || id.contains("4o")
 
-            // Pricing
             val pricing = obj.getAsJsonObject("pricing")
-            val promptRate = pricing?.get("prompt")?.asString?.toDoubleOrNull() ?: 0.0
-            val compRate = pricing?.get("completion")?.asString?.toDoubleOrNull() ?: 0.0
-            val promptPricePerM = promptRate * 1_000_000
-            val compPricePerM = compRate * 1_000_000
-            val isFree = promptPricePerM <= 0.0001 && compPricePerM <= 0.0001
+            val promptRate = pricing?.get("prompt")?.asDouble ?: 0.0
+            val compRate = pricing?.get("completion")?.asDouble ?: 0.0
+            val promptPerM = promptRate * 1_000_000.0
+            val compPerM = compRate * 1_000_000.0
+            val isFree = id.endsWith(":free") || (promptRate == 0.0 && compRate == 0.0)
 
             result.add(
                 ModelInfo(
@@ -265,8 +320,8 @@ class AiProviderManager {
                     name = name,
                     isVision = isVision,
                     isFree = isFree,
-                    promptPricePerM = promptPricePerM,
-                    completionPricePerM = compPricePerM
+                    promptPricePerM = promptPerM,
+                    completionPricePerM = compPerM
                 )
             )
         }
@@ -275,29 +330,22 @@ class AiProviderManager {
 
     private fun fetchCustomModels(baseUrl: String, apiKey: String): List<ModelInfo> {
         val cleanBase = baseUrl.trimEnd('/')
-        val url = "$cleanBase/models"
-        val reqBuilder = Request.Builder().url(url)
-        if (apiKey.isNotBlank()) reqBuilder.header("Authorization", "Bearer $apiKey")
-        val req = reqBuilder.get().build()
-
+        val url = if (cleanBase.endsWith("/v1")) "$cleanBase/models" else "$cleanBase/v1/models"
+        val builder = Request.Builder().url(url).get()
+        if (apiKey.isNotBlank()) builder.header("Authorization", "Bearer $apiKey")
         return try {
-            val res = client.newCall(req).execute()
+            val res = client.newCall(builder.build()).execute()
             if (!res.isSuccessful) return getDefaultFallbackModels("custom")
             val json = res.body?.string() ?: return getDefaultFallbackModels("custom")
             val root = gson.fromJson(json, JsonObject::class.java)
-            val dataArr = root.getAsJsonArray("data") ?: root.getAsJsonArray("models")
-            if (dataArr != null && dataArr.size() > 0) {
-                val list = mutableListOf<ModelInfo>()
-                for (item in dataArr) {
-                    val id = item.asJsonObject.get("id")?.asString
-                        ?: item.asJsonObject.get("name")?.asString ?: continue
-                    val isVision = id.contains("vision") || id.contains("vl") || id.contains("llava")
-                    list.add(ModelInfo(id = id, name = id, isVision = isVision, isFree = true))
-                }
-                list
-            } else {
-                getDefaultFallbackModels("custom")
+            val dataArr = root.getAsJsonArray("data") ?: return getDefaultFallbackModels("custom")
+
+            val list = mutableListOf<ModelInfo>()
+            for (item in dataArr) {
+                val id = item.asJsonObject.get("id")?.asString ?: continue
+                list.add(ModelInfo(id = id, name = id, isVision = true, isFree = true))
             }
+            if (list.isNotEmpty()) list else getDefaultFallbackModels("custom")
         } catch (_: Exception) {
             getDefaultFallbackModels("custom")
         }
@@ -309,7 +357,7 @@ class AiProviderManager {
                 ModelInfo("gemini-2.5-flash", "Gemini 2.5 Flash (Fast Vision)", isVision = true, isFree = true, promptPricePerM = 0.10, completionPricePerM = 0.40),
                 ModelInfo("gemini-2.0-flash", "Gemini 2.0 Flash", isVision = true, isFree = true, promptPricePerM = 0.10, completionPricePerM = 0.40),
                 ModelInfo("gemini-1.5-flash", "Gemini 1.5 Flash", isVision = true, isFree = true, promptPricePerM = 0.075, completionPricePerM = 0.30),
-                ModelInfo("gemini-1.5-pro", "Gemini 1.5 Pro (Deep Reasoning)", isVision = true, isFree = false, promptPricePerM = 1.25, completionPricePerM = 5.00)
+                ModelInfo("gemini-1.5-pro", "Gemini 1.5 Pro", isVision = true, isFree = false, promptPricePerM = 1.25, completionPricePerM = 5.00)
             )
             "openai" -> listOf(
                 ModelInfo("gpt-4o-mini", "GPT-4o Mini (Fast Vision)", isVision = true, isFree = false, promptPricePerM = 0.15, completionPricePerM = 0.60),
@@ -317,7 +365,7 @@ class AiProviderManager {
                 ModelInfo("o1", "o1 Reasoning Vision", isVision = true, isFree = false, promptPricePerM = 15.00, completionPricePerM = 60.00)
             )
             "claude" -> listOf(
-                ModelInfo("claude-3-5-haiku-20241022", "Claude 3.5 Haiku (Fast Vision)", isVision = true, isFree = false, promptPricePerM = 0.80, completionPricePerM = 4.00),
+                ModelInfo("claude-3-5-haiku-20241022", "Claude 3.5 Haiku", isVision = true, isFree = false, promptPricePerM = 0.80, completionPricePerM = 4.00),
                 ModelInfo("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet", isVision = true, isFree = false, promptPricePerM = 3.00, completionPricePerM = 15.00)
             )
             "openrouter" -> listOf(
@@ -440,7 +488,6 @@ class AiProviderManager {
                      e.message?.contains("503") == true)
 
             if (shouldFallback) {
-                // Try fallback provider
                 generateAnswer(
                     provider = fallbackProvider!!,
                     apiKey = fallbackApiKey ?: "",
@@ -471,9 +518,6 @@ class AiProviderManager {
         }
     }
 
-    /**
-     * On-Demand Lazy Generation: Simple Explanation
-     */
     suspend fun generateSimpleExplanation(
         provider: String,
         apiKey: String,
@@ -486,9 +530,6 @@ class AiProviderManager {
         generateQuickText(provider, apiKey, model, baseUrl, prompt, maxTokens = 350)
     }
 
-    /**
-     * On-Demand Lazy Generation: Quiz Question
-     */
     suspend fun generateQuizQuestion(
         provider: String,
         apiKey: String,
@@ -501,9 +542,6 @@ class AiProviderManager {
         generateQuickText(provider, apiKey, model, baseUrl, prompt, maxTokens = 250)
     }
 
-    /**
-     * On-Demand Follow-up Q&A
-     */
     suspend fun generateFollowUp(
         provider: String,
         apiKey: String,
@@ -575,7 +613,7 @@ class AiProviderManager {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent?key=$apiKey"
 
         val partsArray = mutableListOf<JsonObject>()
-        val systemText = buildSystemInstruction(request.conciseMode, request.lazyExplanation)
+        val systemText = buildSystemInstruction(request.answerStyle, request.captureMode)
         partsArray.add(JsonObject().apply { addProperty("text", systemText) })
 
         request.promptNote?.let {
@@ -594,12 +632,13 @@ class AiProviderManager {
             add("parts", gson.toJsonTree(partsArray))
         }
 
+        val maxTokens = if (request.answerStyle == "direct") 400 else request.maxOutputTokens
         val payload = JsonObject().apply {
             add("contents", gson.toJsonTree(listOf(contentObj)))
             val genConfig = JsonObject().apply {
                 addProperty("responseMimeType", "application/json")
-                addProperty("temperature", 0.2)
-                addProperty("maxOutputTokens", request.maxOutputTokens)
+                addProperty("temperature", 0.1)
+                addProperty("maxOutputTokens", maxTokens)
             }
             add("generationConfig", genConfig)
         }
@@ -622,7 +661,6 @@ class AiProviderManager {
             ?.get(0)?.asJsonObject
             ?.get("text")?.asString ?: throw IOException("Invalid response structure from Gemini")
 
-        // Parse token usage
         val usageObj = root.getAsJsonObject("usageMetadata")
         val promptTokens = usageObj?.get("promptTokenCount")?.asInt ?: 0
         val compTokens = usageObj?.get("candidatesTokenCount")?.asInt ?: 0
@@ -637,7 +675,7 @@ class AiProviderManager {
 
         messages.add(JsonObject().apply {
             addProperty("role", "system")
-            addProperty("content", buildSystemInstruction(request.conciseMode, request.lazyExplanation))
+            addProperty("content", buildSystemInstruction(request.answerStyle, request.captureMode))
         })
 
         val contentList = mutableListOf<JsonObject>()
@@ -662,13 +700,14 @@ class AiProviderManager {
             add("content", gson.toJsonTree(contentList))
         })
 
+        val maxTokens = if (request.answerStyle == "direct") 400 else request.maxOutputTokens
         val payload = JsonObject().apply {
             addProperty("model", model)
             add("messages", gson.toJsonTree(messages))
             val format = JsonObject().apply { addProperty("type", "json_object") }
             add("response_format", format)
-            addProperty("temperature", 0.2)
-            addProperty("max_tokens", request.maxOutputTokens)
+            addProperty("temperature", 0.1)
+            addProperty("max_tokens", maxTokens)
         }
 
         val body = payload.toString().toRequestBody("application/json".toMediaType())
@@ -714,7 +753,7 @@ class AiProviderManager {
             })
         }
 
-        val sysText = buildSystemInstruction(request.conciseMode, request.lazyExplanation)
+        val sysText = buildSystemInstruction(request.answerStyle, request.captureMode)
         contentList.add(JsonObject().apply {
             addProperty("type", "text")
             addProperty("text", "${request.promptNote ?: "Solve this question."}\n\n$sysText")
@@ -725,9 +764,10 @@ class AiProviderManager {
             add("content", gson.toJsonTree(contentList))
         }
 
+        val maxTokens = if (request.answerStyle == "direct") 400 else request.maxOutputTokens
         val payload = JsonObject().apply {
             addProperty("model", model)
-            addProperty("max_tokens", request.maxOutputTokens)
+            addProperty("max_tokens", maxTokens)
             add("messages", gson.toJsonTree(listOf(messageObj)))
         }
 
@@ -763,7 +803,7 @@ class AiProviderManager {
 
         messages.add(JsonObject().apply {
             addProperty("role", "system")
-            addProperty("content", buildSystemInstruction(request.conciseMode, request.lazyExplanation))
+            addProperty("content", buildSystemInstruction(request.answerStyle, request.captureMode))
         })
 
         val contentList = mutableListOf<JsonObject>()
@@ -788,13 +828,14 @@ class AiProviderManager {
             add("content", gson.toJsonTree(contentList))
         })
 
+        val maxTokens = if (request.answerStyle == "direct") 400 else request.maxOutputTokens
         val payload = JsonObject().apply {
             addProperty("model", model)
             add("messages", gson.toJsonTree(messages))
             val format = JsonObject().apply { addProperty("type", "json_object") }
             add("response_format", format)
-            addProperty("temperature", 0.2)
-            addProperty("max_tokens", request.maxOutputTokens)
+            addProperty("temperature", 0.1)
+            addProperty("max_tokens", maxTokens)
         }
 
         val body = payload.toString().toRequestBody("application/json".toMediaType())
@@ -832,7 +873,7 @@ class AiProviderManager {
         val messages = mutableListOf<JsonObject>()
         messages.add(JsonObject().apply {
             addProperty("role", "system")
-            addProperty("content", buildSystemInstruction(request.conciseMode, request.lazyExplanation))
+            addProperty("content", buildSystemInstruction(request.answerStyle, request.captureMode))
         })
         val userContent = JsonObject().apply {
             addProperty("role", "user")
@@ -840,11 +881,12 @@ class AiProviderManager {
         }
         messages.add(userContent)
 
+        val maxTokens = if (request.answerStyle == "direct") 400 else request.maxOutputTokens
         val payload = JsonObject().apply {
             addProperty("model", model)
             add("messages", gson.toJsonTree(messages))
-            addProperty("temperature", 0.2)
-            addProperty("max_tokens", request.maxOutputTokens)
+            addProperty("temperature", 0.1)
+            addProperty("max_tokens", maxTokens)
         }
 
         val builder = Request.Builder().url(url)
@@ -872,6 +914,10 @@ class AiProviderManager {
         return parseStructuredAnswer(text, TokenUsage(promptTokens, compTokens, totalTokens), model)
     }
 
+    /**
+     * Highly tolerant JSON parser that handles tables, graphs, answer parts,
+     * and fallbacks when fields are missing or malformed.
+     */
     private fun parseStructuredAnswer(rawText: String, usage: TokenUsage, model: String): AnswerResult {
         var clean = rawText.trim()
         if (clean.startsWith("```json")) {
@@ -886,35 +932,135 @@ class AiProviderManager {
             clean = clean.substring(firstBrace, lastBrace + 1)
         }
 
-        val obj = gson.fromJson(clean, JsonObject::class.java)
-        val subject = obj.get("subject")?.asString ?: "General"
-        val questionText = obj.get("question_text")?.asString ?: "Photo Question"
-        val shortAnswer = obj.get("short_answer")?.asString ?: ""
-        val simpleExplanation = obj.get("simple_explanation")?.asString ?: ""
-
+        var subject = "General"
+        var questionText = "Photo Question"
+        var shortAnswer = ""
+        var simpleExplanation = ""
+        val answerParts = mutableListOf<AnswerPart>()
         val blocks = mutableListOf<AnswerBlock>()
-        val blocksArray = obj.getAsJsonArray("blocks")
-        if (blocksArray != null && blocksArray.size() > 0) {
-            for (elem in blocksArray) {
-                val b = elem.asJsonObject
-                blocks.add(
-                    AnswerBlock(
-                        type = b.get("type")?.asString ?: "text",
-                        display = b.get("display")?.asString ?: "",
-                        spoken = b.get("spoken")?.asString ?: b.get("display")?.asString ?: "",
-                        stepNumber = b.get("stepNumber")?.asInt
-                    )
+        var tableData: TableData? = null
+        var graphData: GraphData? = null
+
+        try {
+            val obj = gson.fromJson(clean, JsonObject::class.java)
+            subject = obj.get("subject")?.asString ?: "General"
+            questionText = obj.get("question_text")?.asString ?: "Photo Question"
+            shortAnswer = obj.get("short_answer")?.asString ?: ""
+            simpleExplanation = obj.get("simple_explanation")?.asString ?: ""
+
+            // 1. Parse answer_parts
+            val partsArray = obj.getAsJsonArray("answer_parts")
+            if (partsArray != null && partsArray.size() > 0) {
+                for (p in partsArray) {
+                    if (p.isJsonObject) {
+                        val pObj = p.asJsonObject
+                        val lbl = pObj.get("label")?.asString ?: ""
+                        val disp = pObj.get("display")?.asString ?: ""
+                        val spk = pObj.get("spoken")?.asString ?: disp
+                        answerParts.add(AnswerPart(label = lbl, display = disp, spoken = spk))
+                        blocks.add(AnswerBlock("step", disp, spk))
+                    }
+                }
+            }
+
+            // Fallback for blocks if answer_parts was missing
+            val blocksArray = obj.getAsJsonArray("blocks")
+            if (answerParts.isEmpty() && blocksArray != null && blocksArray.size() > 0) {
+                for (elem in blocksArray) {
+                    val b = elem.asJsonObject
+                    val disp = b.get("display")?.asString ?: ""
+                    val spk = b.get("spoken")?.asString ?: disp
+                    val stepNum = b.get("stepNumber")?.asInt
+                    val label = if (stepNum != null) "Part $stepNum" else "Step"
+                    blocks.add(AnswerBlock(b.get("type")?.asString ?: "step", disp, spk, stepNum))
+                    answerParts.add(AnswerPart(label = label, display = disp, spoken = spk))
+                }
+            }
+
+            // 2. Parse Table
+            val tableObj = obj.getAsJsonObject("table")
+            if (tableObj != null) {
+                val title = tableObj.get("title")?.asString ?: "Data Table"
+                val headers = mutableListOf<String>()
+                tableObj.getAsJsonArray("headers")?.forEach { headers.add(it.asString) }
+
+                val rows = mutableListOf<List<String>>()
+                tableObj.getAsJsonArray("rows")?.forEach { rowElem ->
+                    if (rowElem.isJsonArray) {
+                        val row = mutableListOf<String>()
+                        rowElem.asJsonArray.forEach { row.add(it.asString) }
+                        rows.add(row)
+                    }
+                }
+                if (headers.isNotEmpty() || rows.isNotEmpty()) {
+                    tableData = TableData(title = title, headers = headers, rows = rows)
+                }
+            }
+
+            // 3. Parse Graph
+            val graphObj = obj.getAsJsonObject("graph")
+            if (graphObj != null) {
+                val type = graphObj.get("type")?.asString ?: "line"
+                val title = graphObj.get("title")?.asString ?: "Chart"
+                val xAxisObj = graphObj.getAsJsonObject("x_axis")
+                val yAxisObj = graphObj.getAsJsonObject("y_axis")
+                val xAxis = if (xAxisObj != null) GraphAxis(xAxisObj.get("label")?.asString ?: "", xAxisObj.get("unit")?.asString ?: "") else null
+                val yAxis = if (yAxisObj != null) GraphAxis(yAxisObj.get("label")?.asString ?: "", yAxisObj.get("unit")?.asString ?: "") else null
+
+                val seriesList = mutableListOf<GraphSeries>()
+                graphObj.getAsJsonArray("series")?.forEach { sElem ->
+                    if (sElem.isJsonObject) {
+                        val sObj = sElem.asJsonObject
+                        val sName = sObj.get("name")?.asString ?: ""
+                        val points = mutableListOf<GraphPoint>()
+                        sObj.getAsJsonArray("points")?.forEach { ptElem ->
+                            if (ptElem.isJsonObject) {
+                                val ptObj = ptElem.asJsonObject
+                                val x = ptObj.get("x")?.asDouble ?: 0.0
+                                val y = ptObj.get("y")?.asDouble ?: 0.0
+                                val lbl = ptObj.get("label")?.asString
+                                points.add(GraphPoint(x = x, y = y, label = lbl))
+                            }
+                        }
+                        seriesList.add(GraphSeries(name = sName, points = points))
+                    }
+                }
+
+                val keyPoints = mutableListOf<String>()
+                graphObj.getAsJsonArray("key_points")?.forEach { keyPoints.add(it.asString) }
+                val trend = graphObj.get("trend")?.asString ?: ""
+
+                graphData = GraphData(
+                    type = type,
+                    title = title,
+                    xAxis = xAxis,
+                    yAxis = yAxis,
+                    series = seriesList,
+                    keyPoints = keyPoints,
+                    trend = trend,
+                    isEstimated = true
                 )
             }
-        } else {
-            blocks.add(AnswerBlock("text", shortAnswer, shortAnswer))
+        } catch (_: Exception) {
+            // If JSON fails to parse, extract raw text into shortAnswer
+            shortAnswer = clean.take(300)
+        }
+
+        // If no parts were found, create default part from shortAnswer
+        if (answerParts.isEmpty()) {
+            val textToUse = shortAnswer.ifEmpty { "Result identified." }
+            answerParts.add(AnswerPart(label = "Final Answer", display = textToUse, spoken = textToUse))
+            blocks.add(AnswerBlock("text", textToUse, textToUse))
         }
 
         return AnswerResult(
             subject = subject,
             questionText = questionText,
-            shortAnswer = shortAnswer,
+            shortAnswer = shortAnswer.ifEmpty { answerParts.firstOrNull()?.display ?: "" },
             blocks = blocks,
+            answerParts = answerParts,
+            table = tableData,
+            graph = graphData,
             simpleExplanation = simpleExplanation,
             usage = usage,
             rawModelUsed = model

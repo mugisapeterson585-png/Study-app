@@ -14,6 +14,45 @@ data class AnswerBlock(
     val stepNumber: Int? = null
 )
 
+data class AnswerPart(
+    val label: String = "",   // e.g. "Part 1", "(a)", "Final Result"
+    val display: String = "", // Written formula / value
+    val spoken: String = ""   // Spoken in earbuds phonetically
+)
+
+data class TableData(
+    val title: String = "",
+    val headers: List<String> = emptyList(),
+    val rows: List<List<String>> = emptyList()
+)
+
+data class GraphPoint(
+    val x: Double = 0.0,
+    val y: Double = 0.0,
+    val label: String? = null
+)
+
+data class GraphSeries(
+    val name: String = "",
+    val points: List<GraphPoint> = emptyList()
+)
+
+data class GraphAxis(
+    val label: String = "",
+    val unit: String = ""
+)
+
+data class GraphData(
+    val type: String = "line", // "line", "bar", "pie", "scatter", "histogram"
+    val title: String = "",
+    val xAxis: GraphAxis? = null,
+    val yAxis: GraphAxis? = null,
+    val series: List<GraphSeries> = emptyList(),
+    val keyPoints: List<String> = emptyList(),
+    val trend: String = "",
+    val isEstimated: Boolean = true
+)
+
 @Entity(tableName = "answers")
 @TypeConverters(AnswerConverters::class)
 data class Answer(
@@ -22,9 +61,13 @@ data class Answer(
     val subject: String,            // Mathematics, Physics, Chemistry, Biology...
     val questionText: String,
     val imagePaths: List<String>,   // URIs or file paths to captured photos
-    val shortAnswer: String,        // 1-2 sentence TL;DR
-    val blocks: List<AnswerBlock>,
-    val simpleExplanation: String,  // Explain-like-I'm-new
+    val shortAnswer: String,        // 1-2 sentence TL;DR direct answer
+    val blocks: List<AnswerBlock> = emptyList(),
+    val simpleExplanation: String = "",  // Explain-like-I'm-new (only generated when requested)
+    val answerParts: List<AnswerPart> = emptyList(),
+    val table: TableData? = null,
+    val graph: GraphData? = null,
+    val answerStyle: String = "direct", // "direct", "short_reason", "show_working"
     val starred: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val lastPlayedAt: Long? = null,
@@ -61,6 +104,40 @@ class AnswerConverters {
         if (json.isNullOrEmpty()) return emptyList()
         val type = object : TypeToken<List<AnswerBlock>>() {}.type
         return gson.fromJson(json, type)
+    }
+
+    @TypeConverter
+    fun fromAnswerPartList(parts: List<AnswerPart>?): String {
+        return gson.toJson(parts ?: emptyList<AnswerPart>())
+    }
+
+    @TypeConverter
+    fun toAnswerPartList(json: String?): List<AnswerPart> {
+        if (json.isNullOrEmpty()) return emptyList()
+        val type = object : TypeToken<List<AnswerPart>>() {}.type
+        return gson.fromJson(json, type)
+    }
+
+    @TypeConverter
+    fun fromTableData(table: TableData?): String {
+        return gson.toJson(table)
+    }
+
+    @TypeConverter
+    fun toTableData(json: String?): TableData? {
+        if (json.isNullOrEmpty() || json == "null") return null
+        return gson.fromJson(json, TableData::class.java)
+    }
+
+    @TypeConverter
+    fun fromGraphData(graph: GraphData?): String {
+        return gson.toJson(graph)
+    }
+
+    @TypeConverter
+    fun toGraphData(json: String?): GraphData? {
+        if (json.isNullOrEmpty() || json == "null") return null
+        return gson.fromJson(json, GraphData::class.java)
     }
 
     @TypeConverter

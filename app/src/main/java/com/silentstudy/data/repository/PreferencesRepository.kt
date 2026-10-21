@@ -30,22 +30,21 @@ data class AiSettings(
     val lazyExplanation: Boolean = true,
     val cheapMode: Boolean = false,
     val maxImagesPerQuestion: Int = 3,
-    val maxTokensAnswer: Int = 1200,
+    val maxTokensAnswer: Int = 400,
     val maxTokensShortAnswer: Int = 150,
     val maxTokensSimple: Int = 400,
     val maxTokensQuiz: Int = 300,
-    val maxTokensFollowUp: Int = 400
+    val maxTokensFollowUp: Int = 400,
+    val answerStyle: String = "direct" // "direct", "short_reason", "show_working"
 )
 
 data class BudgetSettings(
-    val dailyTokenCap: Long = 0L,         // 0 = unlimited
-    val monthlyTokenCap: Long = 0L,       // 0 = unlimited
-    val dailyCostCapUsd: Double = 0.0,    // 0 = unlimited
-    val monthlyCostCapUsd: Double = 0.0,  // 0 = unlimited
+    val dailyTokenCap: Long = 0L,
+    val monthlyTokenCap: Long = 0L,
+    val dailyCostCapUsd: Double = 0.0,
+    val monthlyCostCapUsd: Double = 0.0,
     val pricePerMInputUsd: Double = 0.15,
-    val pricePerMOutputUsd: Double = 0.60,
-    val warnThresholdPercent: Int = 80,
-    val confirmLargeRequestTokens: Int = 2500
+    val pricePerMOutputUsd: Double = 0.60
 )
 
 data class AudioSettings(
@@ -61,9 +60,10 @@ data class AudioSettings(
 data class GestureSettings(
     val sensitivity: Int = 6,
     val hapticsEnabled: Boolean = true,
-    val tapWindowMs: Long = 600L,
-    val longKnockDurationMs: Long = 750L,
-    val minTapGapMs: Long = 70L,
+    val ignorePhoneTouches: Boolean = false,
+    val calibratedThreshold: Float = 0.50f,
+    val tapWindowMs: Long = 650L,
+    val minTapGapMs: Long = 80L,
     val preset: String = "default",
     val customMappings: Map<String, String> = defaultGestureMap()
 )
@@ -74,10 +74,10 @@ fun defaultGestureMap(): Map<String, String> {
         DeskGesture.DOUBLE_TAP.name to GestureAction.NEXT_ANSWER.name,
         DeskGesture.TRIPLE_TAP.name to GestureAction.PREV_ANSWER.name,
         DeskGesture.TAP_PAUSE_TAP.name to GestureAction.REPEAT.name,
-        DeskGesture.LONG_KNOCK.name to GestureAction.SHORT_SUMMARY.name,
         DeskGesture.FOUR_TAPS.name to GestureAction.STOP_SILENT.name,
-        DeskGesture.FIVE_TAPS.name to GestureAction.EXPLAIN_SIMPLER.name,
-        DeskGesture.SIX_TAPS.name to GestureAction.GESTURE_HELP.name
+        DeskGesture.FIVE_TAPS.name to GestureAction.JUMP_TO_N.name,
+        DeskGesture.SIX_TAPS.name to GestureAction.CYCLE_SPEED.name,
+        DeskGesture.TAP_PAUSE_TAP_TAP.name to GestureAction.REPEAT_LAST_PART.name
     )
 }
 
@@ -85,7 +85,7 @@ fun minimalPresetMap(): Map<String, String> {
     return mapOf(
         DeskGesture.SINGLE_TAP.name to GestureAction.PLAY_PAUSE.name,
         DeskGesture.DOUBLE_TAP.name to GestureAction.NEXT_ANSWER.name,
-        DeskGesture.LONG_KNOCK.name to GestureAction.SHORT_SUMMARY.name,
+        DeskGesture.TRIPLE_TAP.name to GestureAction.PREV_ANSWER.name,
         DeskGesture.FOUR_TAPS.name to GestureAction.STOP_SILENT.name
     )
 }
@@ -95,8 +95,8 @@ fun oneHandedPresetMap(): Map<String, String> {
         DeskGesture.SINGLE_TAP.name to GestureAction.PLAY_PAUSE.name,
         DeskGesture.DOUBLE_TAP.name to GestureAction.NEXT_ANSWER.name,
         DeskGesture.TRIPLE_TAP.name to GestureAction.REPEAT.name,
-        DeskGesture.LONG_KNOCK.name to GestureAction.EXPLAIN_SIMPLER.name,
-        DeskGesture.FOUR_TAPS.name to GestureAction.STOP_SILENT.name
+        DeskGesture.FOUR_TAPS.name to GestureAction.STOP_SILENT.name,
+        DeskGesture.TAP_PAUSE_TAP_TAP.name to GestureAction.REPEAT_LAST_PART.name
     )
 }
 
@@ -124,6 +124,7 @@ class PreferencesRepository(private val context: Context) {
         val AI_MAX_TOKENS_SIMPLE = intPreferencesKey("ai_max_tokens_simple")
         val AI_MAX_TOKENS_QUIZ = intPreferencesKey("ai_max_tokens_quiz")
         val AI_MAX_TOKENS_FOLLOWUP = intPreferencesKey("ai_max_tokens_followup")
+        val AI_ANSWER_STYLE = stringPreferencesKey("ai_answer_style")
 
         // Budget
         val BUDGET_DAILY_TOKENS = longPreferencesKey("budget_daily_tokens")
@@ -145,8 +146,9 @@ class PreferencesRepository(private val context: Context) {
         // Gestures
         val GESTURE_SENSITIVITY = intPreferencesKey("gesture_sensitivity")
         val HAPTICS_ENABLED = booleanPreferencesKey("haptics_enabled")
+        val IGNORE_PHONE_TOUCHES = booleanPreferencesKey("ignore_phone_touches")
+        val CALIBRATED_THRESHOLD = floatPreferencesKey("calibrated_threshold")
         val TAP_WINDOW_MS = longPreferencesKey("tap_window_ms")
-        val LONG_KNOCK_DURATION_MS = longPreferencesKey("long_knock_duration_ms")
         val MIN_TAP_GAP_MS = longPreferencesKey("min_tap_gap_ms")
         val GESTURE_PRESET = stringPreferencesKey("gesture_preset")
         val GESTURE_MAP_JSON = stringPreferencesKey("gesture_map_json")
@@ -177,11 +179,12 @@ class PreferencesRepository(private val context: Context) {
             lazyExplanation = prefs[Keys.AI_LAZY_EXPLANATION] ?: true,
             cheapMode = prefs[Keys.AI_CHEAP_MODE] ?: false,
             maxImagesPerQuestion = prefs[Keys.AI_MAX_IMAGES] ?: 3,
-            maxTokensAnswer = prefs[Keys.AI_MAX_TOKENS_ANSWER] ?: 1200,
+            maxTokensAnswer = prefs[Keys.AI_MAX_TOKENS_ANSWER] ?: 400,
             maxTokensShortAnswer = prefs[Keys.AI_MAX_TOKENS_SHORT] ?: 150,
             maxTokensSimple = prefs[Keys.AI_MAX_TOKENS_SIMPLE] ?: 400,
             maxTokensQuiz = prefs[Keys.AI_MAX_TOKENS_QUIZ] ?: 300,
-            maxTokensFollowUp = prefs[Keys.AI_MAX_TOKENS_FOLLOWUP] ?: 400
+            maxTokensFollowUp = prefs[Keys.AI_MAX_TOKENS_FOLLOWUP] ?: 400,
+            answerStyle = prefs[Keys.AI_ANSWER_STYLE] ?: "direct"
         )
     }
 
@@ -224,9 +227,10 @@ class PreferencesRepository(private val context: Context) {
         GestureSettings(
             sensitivity = prefs[Keys.GESTURE_SENSITIVITY] ?: 6,
             hapticsEnabled = prefs[Keys.HAPTICS_ENABLED] ?: true,
-            tapWindowMs = prefs[Keys.TAP_WINDOW_MS] ?: 600L,
-            longKnockDurationMs = prefs[Keys.LONG_KNOCK_DURATION_MS] ?: 750L,
-            minTapGapMs = prefs[Keys.MIN_TAP_GAP_MS] ?: 70L,
+            ignorePhoneTouches = prefs[Keys.IGNORE_PHONE_TOUCHES] ?: false,
+            calibratedThreshold = prefs[Keys.CALIBRATED_THRESHOLD] ?: 0.50f,
+            tapWindowMs = prefs[Keys.TAP_WINDOW_MS] ?: 650L,
+            minTapGapMs = prefs[Keys.MIN_TAP_GAP_MS] ?: 80L,
             preset = prefs[Keys.GESTURE_PRESET] ?: "default",
             customMappings = parsedMap
         )
@@ -261,7 +265,8 @@ class PreferencesRepository(private val context: Context) {
         fallbackModel: String? = null,
         conciseMode: Boolean = true,
         lazyExplanation: Boolean = true,
-        cheapMode: Boolean = false
+        cheapMode: Boolean = false,
+        answerStyle: String = "direct"
     ) {
         context.dataStore.edit {
             it[Keys.AI_PROVIDER] = provider
@@ -274,7 +279,12 @@ class PreferencesRepository(private val context: Context) {
             it[Keys.AI_CONCISE_MODE] = conciseMode
             it[Keys.AI_LAZY_EXPLANATION] = lazyExplanation
             it[Keys.AI_CHEAP_MODE] = cheapMode
+            it[Keys.AI_ANSWER_STYLE] = answerStyle
         }
+    }
+
+    suspend fun setAnswerStyle(style: String) {
+        context.dataStore.edit { it[Keys.AI_ANSWER_STYLE] = style }
     }
 
     suspend fun saveBudgetCaps(
@@ -327,10 +337,17 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.HAPTICS_ENABLED] = enabled }
     }
 
-    suspend fun saveGestureTiming(tapWindowMs: Long, longKnockDurationMs: Long, minTapGapMs: Long) {
+    suspend fun setIgnorePhoneTouches(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.IGNORE_PHONE_TOUCHES] = enabled }
+    }
+
+    suspend fun setCalibratedThreshold(threshold: Float) {
+        context.dataStore.edit { it[Keys.CALIBRATED_THRESHOLD] = threshold }
+    }
+
+    suspend fun saveGestureTiming(tapWindowMs: Long, minTapGapMs: Long) {
         context.dataStore.edit {
             it[Keys.TAP_WINDOW_MS] = tapWindowMs
-            it[Keys.LONG_KNOCK_DURATION_MS] = longKnockDurationMs
             it[Keys.MIN_TAP_GAP_MS] = minTapGapMs
         }
     }
@@ -365,9 +382,9 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[Keys.GESTURE_PRESET] = "default"
             prefs[Keys.GESTURE_MAP_JSON] = gson.toJson(defaultGestureMap())
-            prefs[Keys.TAP_WINDOW_MS] = 600L
-            prefs[Keys.LONG_KNOCK_DURATION_MS] = 750L
-            prefs[Keys.MIN_TAP_GAP_MS] = 70L
+            prefs[Keys.TAP_WINDOW_MS] = 650L
+            prefs[Keys.MIN_TAP_GAP_MS] = 80L
+            prefs[Keys.IGNORE_PHONE_TOUCHES] = false
         }
     }
 
@@ -387,7 +404,6 @@ class PreferencesRepository(private val context: Context) {
     }
 
     fun exportSettingsJson(): String {
-        // Safe export omitting API keys
         val safeExport = mapOf(
             "app" to "SilentStudy",
             "version" to "1.0.0",

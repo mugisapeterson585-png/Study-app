@@ -200,6 +200,61 @@ class SilentStudyTtsManager(
         }
     }
 
+    /**
+     * Plays a private, subtle tick sound into earbuds when a gesture is recognized
+     */
+    fun playEarbudTick() {
+        if (!earbudsGuard.isPlaybackPermitted()) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val sampleRate = 16000
+                val durationMs = 12
+                val numSamples = (sampleRate * durationMs) / 1000
+                val buffer = ShortArray(numSamples)
+                val freq = 950.0
+                for (i in 0 until numSamples) {
+                    val angle = 2.0 * Math.PI * i * freq / sampleRate
+                    val envelope = Math.exp(-4.0 * i / numSamples)
+                    buffer[i] = (Math.sin(angle) * 12000 * envelope).toInt().toShort()
+                }
+                val audioTrack = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    android.media.AudioTrack.Builder()
+                        .setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        )
+                        .setAudioFormat(
+                            android.media.AudioFormat.Builder()
+                                .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(buffer.size * 2)
+                        .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                        .build()
+                } else {
+                    @Suppress("DEPRECATION")
+                    android.media.AudioTrack(
+                        AudioManager.STREAM_MUSIC,
+                        sampleRate,
+                        android.media.AudioFormat.CHANNEL_OUT_MONO,
+                        android.media.AudioFormat.ENCODING_PCM_16BIT,
+                        buffer.size * 2,
+                        android.media.AudioTrack.MODE_STATIC
+                    )
+                }
+                audioTrack.write(buffer, 0, buffer.size)
+                audioTrack.play()
+                delay(25)
+                audioTrack.stop()
+                audioTrack.release()
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun requestAudioFocus() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val audioAttributes = AudioAttributes.Builder()

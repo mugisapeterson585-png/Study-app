@@ -80,6 +80,9 @@ fun CaptureScreen(
     // Batch capture queue
     var batchQueueCount by remember { mutableStateOf(0) }
 
+    // Capture Mode: auto, direct, table, graph
+    var captureMode by remember { mutableStateOf("auto") }
+
     val takePicture = {
         cameraController.takePicture(
             ContextCompat.getMainExecutor(context),
@@ -208,8 +211,10 @@ fun CaptureScreen(
                     request = AnswerRequest(
                         imagesBase64 = capturedPhotosBase64,
                         promptNote = promptNote.ifEmpty { null },
+                        answerStyle = aiSettings.answerStyle,
+                        captureMode = captureMode,
                         conciseMode = aiSettings.conciseMode,
-                        maxOutputTokens = aiSettings.maxTokensAnswer,
+                        maxOutputTokens = if (aiSettings.answerStyle == "direct") 400 else aiSettings.maxTokensAnswer,
                         lazyExplanation = aiSettings.lazyExplanation
                     )
                 )
@@ -230,6 +235,10 @@ fun CaptureScreen(
                     imagePaths = capturedPhotosBase64,
                     shortAnswer = result.shortAnswer,
                     blocks = result.blocks,
+                    answerParts = result.answerParts,
+                    table = result.table,
+                    graph = result.graph,
+                    answerStyle = aiSettings.answerStyle,
                     simpleExplanation = result.simpleExplanation,
                     photoHash = combinedHash,
                     status = "completed"
@@ -346,6 +355,36 @@ fun CaptureScreen(
                             imageVector = Icons.Default.Timer,
                             contentDescription = "Timer",
                             tint = if (isTimerMode) colors.accent else colors.textSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Capture Mode Selector Chips (Auto, Direct, Table, Graph)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                listOf(
+                    "auto" to "Auto",
+                    "direct" to "Direct",
+                    "table" to "Table",
+                    "graph" to "Graph"
+                ).forEach { (mKey, mLabel) ->
+                    val isSel = captureMode == mKey
+                    AppButton(
+                        onClick = { captureMode = mKey },
+                        modifier = Modifier.weight(1f),
+                        isAccent = isSel
+                    ) {
+                        Text(
+                            text = mLabel,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSel) colors.accent else colors.textSecondary
                         )
                     }
                 }
