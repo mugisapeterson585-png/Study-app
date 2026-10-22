@@ -5,7 +5,9 @@ import com.silentstudy.SilentStudyApp
 import com.silentstudy.data.model.Answer
 import com.silentstudy.data.model.AnswerBlock
 import com.silentstudy.data.model.AnswerPart
+import com.silentstudy.data.model.GraphData
 import com.silentstudy.data.model.TableData
+import com.silentstudy.data.repository.defaultGestureMap
 import com.silentstudy.gestures.DeskGesture
 import com.silentstudy.gestures.GestureAction
 import kotlinx.coroutines.*
@@ -78,21 +80,7 @@ class PlaybackController(private val app: SilentStudyApp) {
         }
 
         // Restore last playback position on startup
-        scope.launch {
-            try {
-                val lastPos = app.preferencesRepository.lastPlaybackPosition.first()
-                if (lastPos.first > 0) {
-                    val saved = withContext(Dispatchers.IO) {
-                        app.database.answerDao().getAnswerById(lastPos.first)
-                    }
-                    if (saved != null) {
-                        _currentPlayingAnswer.value = saved
-                        val maxIdx = if (saved.answerParts.isNotEmpty()) saved.answerParts.size - 1 else (saved.blocks.size - 1).coerceAtLeast(0)
-                        _currentPartIndex.value = lastPos.second.coerceIn(0, maxIdx)
-                    }
-                }
-            } catch (_: Exception) {}
-        }
+        restoreInterruptedPlayback()
     }
 
     fun startSession() {
@@ -589,5 +577,146 @@ class PlaybackController(private val app: SilentStudyApp) {
     fun dismissAfterMenu() {
         afterMenuJob?.cancel()
         _showAfterAnswerMenu.value = false
+    }
+
+    /**
+     * Restores interrupted playback position saved across app reloads
+     */
+    fun restoreInterruptedPlayback() {
+        scope.launch {
+            try {
+                val lastPos = app.preferencesRepository.lastPlaybackPosition.first()
+                if (lastPos.first > 0) {
+                    val saved = withContext(Dispatchers.IO) {
+                        app.database.answerDao().getAnswerById(lastPos.first)
+                    }
+                    if (saved != null) {
+                        _currentPlayingAnswer.value = saved
+                        val maxIdx = if (saved.answerParts.isNotEmpty()) saved.answerParts.size - 1 else (saved.blocks.size - 1).coerceAtLeast(0)
+                        _currentPartIndex.value = lastPos.second.coerceIn(0, maxIdx)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Resumes playback from current part or begins playing first saved answer
+     */
+    fun resume() {
+        val ans = _currentPlayingAnswer.value
+        if (ans != null) {
+            _lastGestureText.value = "Resumed #${ans.id}"
+            playAnswer(ans, _currentPartIndex.value)
+        } else {
+            scope.launch {
+                val answers = withContext(Dispatchers.IO) {
+                    app.database.answerDao().getAllAnswersSync()
+                }
+                if (answers.isNotEmpty()) {
+                    val first = answers.first()
+                    _lastGestureText.value = "Playing #${first.id}"
+                    playAnswer(first, 0)
+                }
+            }
+        }
+    }
+
+    /**
+     * Replays the current answer from the beginning (Part 1)
+     */
+    fun repeatCurrent() {
+        dismissAfterMenu()
+        val ans = _currentPlayingAnswer.value
+        if (ans != null) {
+            _lastGestureText.value = "Repeat #${ans.id}"
+            playAnswer(ans, 0)
+        } else {
+            scope.launch {
+                val answers = withContext(Dispatchers.IO) {
+                    app.database.answerDao().getAllAnswersSync()
+                }
+                if (answers.isNotEmpty()) {
+                    val first = answers.first()
+                    _lastGestureText.value = "Repeat #${first.id}"
+                    playAnswer(first, 0)
+                }
+            }
+        }
+    }
+
+    /**
+     * Advances to the next saved answer in the library
+     */
+    fun nextAnswer() {
+        dismissAfterMenu()
+        scope.launch {
+            val answers = withContext(Dispatchers.IO) {
+                app.database.answerDao().getAllAnswersSync()
+            }
+            if (answers.isNotEmpty()) {
+                val currentId = _currentPlayingAnswer.value?.id
+                val currentIdx = answers.indexOfFirst { it.id == currentId }
+                val nextIdx = if (currentIdx != -1) (currentIdx + 1) % answers.size else 0
+                val nextAns = answers[nextIdx]
+                _lastGestureText.value = "Next answer (#${nextAns.id})"
+                playAnswer(nextAns, 0)
+            } else {
+                _lastGestureText.value = "No answers saved"
+            }
+        }
+    }
+
+    /**
+     * Speaks the simplified explanation if available, or generates it on demand
+     */
+    fun speakSimpleExplanation() {
+        dismissAfterMenu()
+        val ans = _currentPlayingAnswer.value ?: return
+        scope.launch {
+            val aiSettings = app.preferencesRepository.aiSettings.first()
+            if (ans.simpleExplanation.isNotBlank() && !ans.simpleExplanation.contains("(Generated on demand)")) {
+                _lastGestureText.value = "Simple explanation"
+                app.ttsManager.speak(ans.simpleExplanation, "simple_explanation")
+            } else {
+                _lastGestureText.value = "Generating explanation..."
+                app.ttsManager.spokenPrompt("Generating explanation")
+                val exp = app.aiProviderManager.generateSimpleExplanation(
+                    aiSettings.provider, aiSettings.apiKey, aiSettings.model,
+                    aiSettings.baseUrl, ans.questionText, ans.shortAnswer
+                )
+                val updated = ans.copy(simpleExplanation = exp)
+                withContext(Dispatchers.IO) {
+                    app.database.answerDao().updateAnswer(updated)
+                }
+                _currentPlayingAnswer.value = updated
+                app.ttsManager.speak(exp, "simple_explanation")
+            }
+        }
+    }
+
+    /**
+     * Begins reading a table answer row-by-row
+     */
+    fun readTableAnswer(answer: Answer) {
+        startTableReading(answer)
+    }
+
+    /**
+     * Updates spoken menu setting
+     */
+    fun setSpokenMenuEnabled(enabled: Boolean) {
+        scope.launch {
+            app.preferencesRepository.setSpokenMenuEnabled(enabled)
+        }
+    }
+
+    /**
+     * Updates spoken prompts setting
+     */
+    fun setSpokenPromptsEnabled(enabled: Boolean) {
+        scope.launch {
+            app.preferencesRepository.setSpokenPromptsEnabled(enabled)
+        }
     }
 }

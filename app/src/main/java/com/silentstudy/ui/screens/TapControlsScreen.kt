@@ -418,33 +418,16 @@ fun TapControlsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Ignore phone touches toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Ignore touches on the phone itself",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary
-                            )
-                            Text(
-                                text = "Ignores sensor spikes within 200ms of touching screen, so only desk taps count",
-                                fontSize = 10.sp,
-                                color = colors.textSecondary
-                            )
-                        }
-                        AppToggle(
-                            checked = ignoreTouches,
-                            onCheckedChange = { chk ->
-                                ignoreTouches = chk
-                                app.deskTapSensor.ignorePhoneTouches = chk
-                                scope.launch { app.preferencesRepository.setIgnorePhoneTouches(chk) }
-                            }
-                        )
-                    }
+                    AppToggle(
+                        checked = ignoreTouches,
+                        onCheckedChange = { chk ->
+                            ignoreTouches = chk
+                            app.deskTapSensor.ignorePhoneTouches = chk
+                            scope.launch { app.preferencesRepository.setIgnorePhoneTouches(chk) }
+                        },
+                        label = "Ignore touches on the phone itself",
+                        sublabel = "Ignores sensor spikes within 200ms of touching screen, so only desk taps count"
+                    )
                 }
             }
 

@@ -43,6 +43,7 @@ data class BudgetSettings(
     val monthlyTokenCap: Long = 0L,
     val dailyCostCapUsd: Double = 0.0,
     val monthlyCostCapUsd: Double = 0.0,
+    val warnThresholdPercent: Int = 80,
     val pricePerMInputUsd: Double = 0.15,
     val pricePerMOutputUsd: Double = 0.60
 )
@@ -133,6 +134,7 @@ class PreferencesRepository(private val context: Context) {
         val BUDGET_MONTHLY_COST = doublePreferencesKey("budget_monthly_cost")
         val BUDGET_PRICE_INPUT = doublePreferencesKey("budget_price_input")
         val BUDGET_PRICE_OUTPUT = doublePreferencesKey("budget_price_output")
+        val BUDGET_WARN_PERCENT = intPreferencesKey("budget_warn_percent")
 
         // Audio
         val SPEECH_RATE = floatPreferencesKey("speech_rate")
@@ -194,6 +196,7 @@ class PreferencesRepository(private val context: Context) {
             monthlyTokenCap = prefs[Keys.BUDGET_MONTHLY_TOKENS] ?: 0L,
             dailyCostCapUsd = prefs[Keys.BUDGET_DAILY_COST] ?: 0.0,
             monthlyCostCapUsd = prefs[Keys.BUDGET_MONTHLY_COST] ?: 0.0,
+            warnThresholdPercent = prefs[Keys.BUDGET_WARN_PERCENT] ?: 80,
             pricePerMInputUsd = prefs[Keys.BUDGET_PRICE_INPUT] ?: 0.15,
             pricePerMOutputUsd = prefs[Keys.BUDGET_PRICE_OUTPUT] ?: 0.60
         )
@@ -317,6 +320,8 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.SPOKEN_MENU] = enabled }
     }
 
+    suspend fun setSpokenMenuEnabled(enabled: Boolean) = setSpokenMenu(enabled)
+
     suspend fun setSilentTextMode(enabled: Boolean) {
         context.dataStore.edit { it[Keys.SILENT_TEXT_MODE] = enabled }
     }
@@ -327,6 +332,12 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setSpokenPrompts(enabled: Boolean) {
         context.dataStore.edit { it[Keys.SPOKEN_PROMPTS] = enabled }
+    }
+
+    suspend fun setSpokenPromptsEnabled(enabled: Boolean) = setSpokenPrompts(enabled)
+
+    suspend fun setWarnThresholdPercent(percent: Int) {
+        context.dataStore.edit { it[Keys.BUDGET_WARN_PERCENT] = percent }
     }
 
     suspend fun setGestureSensitivity(sensitivity: Int) {

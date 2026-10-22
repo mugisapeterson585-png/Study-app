@@ -870,7 +870,7 @@ fun SettingsScreen(
                         checked = conciseMode,
                         onCheckedChange = {
                             conciseMode = it
-                            onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput, fallbackProviderInput, fallbackKeyInput, fallbackModelInput, it, lazyExplanation, cheapMode)
+                            onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput, fallbackProviderInput, fallbackKeyInput, fallbackModelInput, it, lazyExplanation, cheapMode, answerStyle)
                         },
                         label = "Concise Mode (Token Saver)",
                         sublabel = "Instructs AI to be brief, compact, and avoid repetitive phrasing."
@@ -880,7 +880,7 @@ fun SettingsScreen(
                         checked = lazyExplanation,
                         onCheckedChange = {
                             lazyExplanation = it
-                            onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput, fallbackProviderInput, fallbackKeyInput, fallbackModelInput, conciseMode, it, cheapMode)
+                            onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput, fallbackProviderInput, fallbackKeyInput, fallbackModelInput, conciseMode, it, cheapMode, answerStyle)
                         },
                         label = "Lazy Explanation Generation",
                         sublabel = "Initial request only returns direct answer & steps. Simple explanations are generated only when requested."
@@ -890,7 +890,7 @@ fun SettingsScreen(
                         checked = cheapMode,
                         onCheckedChange = {
                             cheapMode = it
-                            onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput, fallbackProviderInput, fallbackKeyInput, fallbackModelInput, conciseMode, lazyExplanation, it)
+                            onSaveAi(selectedProvider, apiKeyInput, modelInput, baseUrlInput, fallbackProviderInput, fallbackKeyInput, fallbackModelInput, conciseMode, lazyExplanation, it, answerStyle)
                         },
                         label = "Cheap Mode",
                         sublabel = "Picks the lowest cost vision model and lowest output token limit."
